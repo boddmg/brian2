@@ -16,23 +16,13 @@ from brian2.units.fundamentalunits import (have_same_dimensions, Quantity,
 
 logger = get_logger(__name__)
 
-__all__ = ['Morphology', 'MorphologyData', 'Cylinder', 'Soma']
+__all__ = ['Morphology', 'Cylinder', 'Soma']
 
 
 def hash_array(arr):
     v = arr.view()
     v.flags.writeable = False
     return hash(getbuffer(v))
-
-class MorphologyData(object):
-    def __init__(self, N):
-        self.diameter = zeros(N)
-        self.length = zeros(N)
-        self.x = zeros(N)
-        self.y = zeros(N)
-        self.z = zeros(N)
-        self.area = zeros(N)
-        self.distance = zeros(N)
 
 
 class MorphologyIndexWrapper(object):
@@ -288,15 +278,10 @@ class Morphology(object):
             raise AssertionError('Unexpected index %s' % index_var)
         if not (item is None or item == slice(None)):
             return self[item]._indices()
-        elif hasattr(self, '_origin'):
-            if len(self.x) == 1:
-                return self._origin  # single compartment
-            else:
-                return arange(self._origin, self._origin + len(self.x))
+        elif self.n == 1:
+            return self._origin  # single compartment
         else:
-            raise AttributeError('Absolute compartment indexes do not exist '
-                                 'until the morphology is compressed '
-                                 '(by SpatialNeuron)')
+            return arange(self._origin, self._origin + self.n)
 
     def __getitem__(self, x):
         """
@@ -467,34 +452,13 @@ class Morphology(object):
         """
         Returns the total number of compartments.
         """
-        return len(self.x) + sum(len(child) for child in self.children)
+        return self.n + sum(len(child) for child in self.children)
 
     def _update_indices(self, origin=0):
         self._origin = origin
         n = self.n
         for child in self.children:
             child._update_indices(origin=origin + n)
-            n += len(child)
-
-    def compress(self, morphology_data):
-        """
-        Compresses the tree by changing the compartment vectors to views on
-        a matrix (or vectors). The morphology cannot be changed anymore but
-        all other functions should work normally.
-        Units are discarded in the process.
-        """
-        origin = self._origin
-        n = len(self.x)
-        # Update values of vectors
-        morphology_data.diameter[origin:origin+n] = self.diameter
-        morphology_data.length[origin:origin+n] = self.length
-        morphology_data.area[origin:origin+n] = self.area
-        morphology_data.x[origin:origin+n] = self.x
-        morphology_data.y[origin:origin+n] = self.y
-        morphology_data.z[origin:origin+n] = self.z
-        morphology_data.distance[origin:origin+n] = self.distance
-        for child in self.children:
-            child.compress(morphology_data)
             n += len(child)
 
     def plot(self, axes=None, simple=True, origin=None):

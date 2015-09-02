@@ -2,11 +2,10 @@
 Compartmental models.
 This module defines the SpatialNeuron class, which defines multicompartmental models.
 '''
-from itertools import izip
+from copy import copy as stdlib_copy
 import weakref
 
 import sympy as sp
-from numpy import pi
 import numpy as np
 
 from brian2.core.variables import Variables
@@ -22,11 +21,40 @@ from brian2.groups.neurongroup import NeuronGroup
 from brian2.groups.subgroup import Subgroup
 from brian2.equations.codestrings import Expression
 
-from .morphology import MorphologyData
-
 __all__ = ['SpatialNeuron']
 
 logger = get_logger(__name__)
+
+
+class FlatMorphologyData(object):
+    def __init__(self, morphology):
+        N = len(morphology)
+        self.diameter = np.zeros(N)
+        self.length = np.zeros(N)
+        self.x = np.zeros(N)
+        self.y = np.zeros(N)
+        self.z = np.zeros(N)
+        self.area = np.zeros(N)
+        self.distance = np.zeros(N)
+        self._fill_from_morphology(morphology)
+    
+    def _fill_from_morphology(self, morphology):
+        """
+        Recursively copy the data from the morphology into the flat
+        representation.
+        """
+        origin = morphology._origin
+        n = morphology.n
+        # Update values of vectors
+        self.diameter[origin:origin+n] = morphology.diameter
+        self.length[origin:origin+n] = morphology.length
+        self.area[origin:origin+n] = morphology.area
+        self.x[origin:origin+n] = morphology.x
+        self.y[origin:origin+n] = morphology.y
+        self.z[origin:origin+n] = morphology.z
+        self.distance[origin:origin+n] = morphology.distance
+        for child in morphology.children:
+            self._fill_from_morphology(child)
 
 
 class SpatialNeuron(NeuronGroup):
@@ -217,11 +245,10 @@ class SpatialNeuron(NeuronGroup):
         # Possibilities for the name: characteristic_length, electrotonic_length, length_constant, space_constant
 
         # Insert morphology
-        self.morphology = morphology
+        self.morphology = stdlib_copy(morphology)
 
         # Link morphology variables to neuron's state variables
-        self.morphology_data = MorphologyData(len(morphology))
-        self.morphology.compress(self.morphology_data)
+        self.morphology_data = FlatMorphologyData(self.morphology)
 
         NeuronGroup.__init__(self, len(morphology), model=model + eqs_constants,
                              threshold=threshold, refractory=refractory,
