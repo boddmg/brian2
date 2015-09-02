@@ -25,6 +25,13 @@ def hash_array(arr):
     return hash(getbuffer(v))
 
 
+def _set_root(morphology, root):
+    # Recursively set the `_root` attribute to link to the main morphology
+    # object
+    morphology._root = root
+    for child in morphology.children:
+        _set_root(child, root)
+
 class MorphologyIndexWrapper(object):
     '''
     A simpler version of `~brian2.groups.group.IndexWrapper`, not allowing for
@@ -59,17 +66,17 @@ class Morphology(object):
     '''
     # Specifing slots makes it easier to figure out which assignments are meant
     # to create a subtree (see `__setattr__`)
-    __slots__ = ['children', '_named_children', 'indices', 'type', 'parent',
-                 '_origin', 'n', 'x', 'y', 'z', 'diameter', 'length', 'area',
-                 'distance']
+    __slots__ = ['children', '_named_children', 'indices', 'type',
+                 '_origin', '_root', 'n', 'x', 'y', 'z', 'diameter', 'length',
+                 'area', 'distance']
 
-    def __init__(self, filename=None, n=None, parent=None):
+    def __init__(self, filename=None, n=None):
         self.children = []
         self._named_children = {}
         self.indices = MorphologyIndexWrapper(self)
         self.type = None
-        self.parent = None
         self._origin = 0
+        self._root = self
         if filename is not None:
             self.loadswc(filename)
             self._update_indices()
@@ -235,7 +242,7 @@ class Morphology(object):
                                      # in the branch
         self.set_distance()
         # Create children (list)
-        self.children = [Morphology(parent=self).create_from_segments(segments, origin=c)
+        self.children = [Morphology(root=self._root).create_from_segments(segments, origin=c)
                          for c in segments[n]['children']]
         # Create dictionary of names (enumerates children from number 1)
         for i, child in enumerate(self.children):
@@ -384,15 +391,10 @@ class Morphology(object):
                 self.children.append(child)
                 self._named_children[str(len(self.children))] = child  # numbered child
             self._named_children[x] = child
-            child.parent = self
 
+        _set_root(child, self._root)
         # go up to the parent and update the absolute indices
-        current = self
-        parent = self.parent
-        while parent is not None:
-            current = parent
-            parent = current.parent
-        current._update_indices()
+        self._root._update_indices()
 
     def __delitem__(self, x):
         """
@@ -414,22 +416,14 @@ class Morphology(object):
             raise AttributeError('The subtree ' + x + ' does not exist')
 
         # go up to the parent and update the absolute indices
-        current = self
-        parent = self.parent
-        while parent is not None:
-            current = parent
-            parent = current.parent
-        current._update_indices()
+        self._root._update_indices()
 
     def __getattr__(self, x):
         """
         Returns the subtree named `x`.
         Ex.: ``axon=neuron.axon``
         """
-        if x.startswith('_') or x in self.__dict__:
-            return super(object, self).__getattr__(x)
-        else:
-            return self[x]
+        return self[x]
 
     def __setattr__(self, x, child):
         """
