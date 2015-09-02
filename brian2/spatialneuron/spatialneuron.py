@@ -21,6 +21,8 @@ from brian2.groups.neurongroup import NeuronGroup
 from brian2.groups.subgroup import Subgroup
 from brian2.equations.codestrings import Expression
 
+from .morphology import Morphology
+
 __all__ = ['SpatialNeuron']
 
 logger = get_logger(__name__)
@@ -133,19 +135,6 @@ class SpatialNeuron(NeuronGroup):
             raise TypeError(('model has to be a string or an Equations '
                              'object, is "%s" instead.') % type(model))
 
-        # Insert the threshold mechanism at the specified location
-        if threshold_location is not None:
-            if hasattr(threshold_location,
-                       '_indices'):  # assuming this is a method
-                threshold_location = threshold_location._indices()
-                # for now, only a single compartment allowed
-                if len(threshold_location) == 1:
-                    threshold_location = threshold_location[0]
-                else:
-                    raise AttributeError(('Threshold can only be applied on a '
-                                          'single location'))
-            threshold = '(' + threshold + ') and (i == ' + str(threshold_location) + ')'
-
         # Check flags (we have point currents)
         model.check_flags({DIFFERENTIAL_EQUATION: ('point current',),
                            PARAMETER: ('constant', 'shared', 'linked', 'point current'),
@@ -244,11 +233,26 @@ class SpatialNeuron(NeuronGroup):
         """)
         # Possibilities for the name: characteristic_length, electrotonic_length, length_constant, space_constant
 
-        # Insert morphology
-        self.morphology = stdlib_copy(morphology)
+        #: The morphology for this SpatialNeuron
+        self._morphology = stdlib_copy(morphology)
+
+        #: The hash of the original morphology, used to recognize it
+        self._orig_morphology_hash = hash(morphology)
 
         # Link morphology variables to neuron's state variables
-        self.morphology_data = FlatMorphologyData(self.morphology)
+        self._morphology_data = FlatMorphologyData(self._morphology)
+
+        # Insert the threshold mechanism at the specified location
+        if threshold_location is not None:
+            if isinstance(threshold_location, Morphology):
+                self.check_morphology(threshold_location)
+                threshold_location = threshold_location._indices()
+            threshold_location = np.asarray(threshold_location)
+            # for now, only a single compartment allowed
+            if threshold_location.shape != ():
+                raise TypeError(('Threshold can only be applied on a '
+                                 'single location'))
+            threshold = '(' + threshold + ') and (i == ' + str(threshold_location) + ')'
 
         NeuronGroup.__init__(self, len(morphology), model=model + eqs_constants,
                              threshold=threshold, refractory=refractory,
@@ -259,13 +263,14 @@ class SpatialNeuron(NeuronGroup):
         self.Cm = Cm
         self.Ri = Ri
         # TODO: View instead of copy for runtime?
-        self.diameter_ = self.morphology_data.diameter
-        self.distance_ = self.morphology_data.distance
-        self.length_ = self.morphology_data.length
-        self.area_ = self.morphology_data.area
-        self.x_ = self.morphology_data.x
-        self.y_ = self.morphology_data.y
-        self.z_ = self.morphology_data.z
+        # TODO: How to keep all those in sync with the _morphology attribute?
+        self.diameter_ = self._morphology_data.diameter
+        self.distance_ = self._morphology_data.distance
+        self.length_ = self._morphology_data.length
+        self.area_ = self._morphology_data.area
+        self.x_ = self._morphology_data.x
+        self.y_ = self._morphology_data.y
+        self.z_ = self._morphology_data.z
 
         # Performs numerical integration step
         self.add_attribute('diffusion_state_updater')
@@ -275,6 +280,14 @@ class SpatialNeuron(NeuronGroup):
 
         # Creation of contained_objects that do the work
         self.contained_objects.extend([self.diffusion_state_updater])
+
+    def check_morphology(self, morphology):
+        base_morphology_hash = hash(morphology._base)
+        if not (base_morphology_hash == self._orig_morphology_hash or
+                base_morphology_hash == hash(self._morphology)):
+            raise ValueError(('The morphology does not correspond to '
+                              'the morphology that was used to create '
+                              'the SpatialNeuron object'))
 
     def __getattr__(self, x):
         '''
@@ -297,11 +310,11 @@ class SpatialNeuron(NeuronGroup):
         If it does not exist, returns the `Group` attribute.
         '''
         if x == 'main':  # Main segment, without the subtrees
-            origin = neuron.morphology._origin
-            return Subgroup(neuron, origin, origin + len(neuron.morphology.x))
-        elif (x != 'morphology') and ((x in neuron.morphology._named_children) or
+            origin = neuron._morphology._origin
+            return Subgroup(neuron, origin, origin + neuron._morphology.n)
+        elif (x != '_morphology') and ((x in neuron._morphology._named_children) or
                                       all([c in 'LR123456789' for c in x])):  # subtree
-            morpho = neuron.morphology[x]
+            morpho = neuron._morphology[x]
             return SpatialSubgroup(neuron, morpho._origin,
                                    morpho._origin + len(morpho),
                                    morphology=morpho)
@@ -326,7 +339,7 @@ class SpatialNeuron(NeuronGroup):
 
         if type(start) == type(1 * cm):  # e.g. 10*um:20*um
             # Convert to integers (compartment numbers)
-            morpho = neuron.morphology[x]
+            morpho = neuron._morphology[x]
             start = morpho._origin
             stop = morpho._origin + morpho.n
 
@@ -355,7 +368,7 @@ class SpatialSubgroup(Subgroup):
     '''
 
     def __init__(self, source, start, stop, morphology, name=None):
-        self.morphology = morphology
+        self._morphology = morphology
         Subgroup.__init__(self, source, start, stop, name)
 
     def __getattr__(self, x):
@@ -387,7 +400,7 @@ class SpatialStateUpdater(CodeRunner, Group):
                             name=group.name + '_spatialstateupdater*',
                             check_units=False)
         n = len(group) # total number of compartments
-        segments = self.number_branches(group.morphology)
+        segments = self.number_branches(group._morphology)
         self.variables = Variables(self, default_index='_segment_idx')
         self.variables.add_reference('N', group)
         self.variables.add_arange('_compartment_idx', size=n)
@@ -419,7 +432,7 @@ class SpatialStateUpdater(CodeRunner, Group):
         self._temp_morph_parent_i = np.zeros(segments, dtype=np.int32)
         self._temp_starts = np.zeros(segments, dtype=np.int32)
         self._temp_ends = np.zeros(segments, dtype=np.int32)
-        self._pre_calc_iteration(self.group.morphology)
+        self._pre_calc_iteration(self.group._morphology)
         self._morph_parent_i = self._temp_morph_parent_i
         self._starts = self._temp_starts
         self._ends = self._temp_ends

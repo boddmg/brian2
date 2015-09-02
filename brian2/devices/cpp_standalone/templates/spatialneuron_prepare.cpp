@@ -7,7 +7,7 @@
 {% block maincode %}
     const double _Ri = {{Ri}}[0];  // Ri is a shared variable
 
-    {% if owner.morphology.type == 'soma' %}
+    {% if owner._morphology.type == 'soma' %}
     // Correction for soma (a bit of a hack),
     //  so that it has negligible axial resistance
     {{length}}[0] = {{diameter}}[0] * 0.01;
