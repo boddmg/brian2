@@ -67,23 +67,30 @@ class Morphology(object):
     n : int, optional
         Number of compartments.
     '''
-
-    def __init__(self, filename=None, n=None):
+    # Specifing slots makes it easier to figure out which assignments are meant
+    # to create a subtree (see `__setattr__`)
+    __slots__ = ['children', '_namedkid', 'indices', 'type', 'parent', '_origin',
+                 'n', 'x', 'y', 'z', 'diameter', 'length', 'area', 'distance']
+    def __init__(self, filename=None, n=None, parent=None):
         self.children = []
         self._namedkid = {}
-        self.iscompressed = False
         self.indices = MorphologyIndexWrapper(self)
         self.type = None
+        self.parent = None
+        self._origin = 0
         if filename is not None:
             self.loadswc(filename)
+            self._update_indices()
         elif n is not None:  # Creates a branch with n compartments
             # The problem here is that these parameters should have some
             # self-consistency
+            self.n = n
             (self.x, self.y, self.z, self.diameter, self.length, self.area,
              self.distance) = [zeros(n) * meter for _ in range(7)]
 
     def __hash__(self):
-        hash_value = (hash_array(self.diameter) +
+        hash_value = (self.n +
+                      hash_array(self.diameter) +
                       hash_array(self.length) +
                       hash_array(self.area) +
                       hash_array(self.distance) +
@@ -231,11 +238,12 @@ class Morphology(object):
         self.diameter, self.length, self.area, self.x, self.y, self.z = \
             zip(*[(seg['diameter'], seg['length'], seg['area'], seg['x'],
                    seg['y'], seg['z']) for seg in branch])
+        self.n = len(branch)
         self.type = segments[n]['T']  # normally same type for all compartments
                                      # in the branch
         self.set_distance()
         # Create children (list)
-        self.children = [Morphology().create_from_segments(segments, origin=c)
+        self.children = [Morphology(parent=self).create_from_segments(segments, origin=c)
                          for c in segments[n]['children']]
         # Create dictionary of names (enumerates children from number 1)
         for i, child in enumerate(self.children):
@@ -256,6 +264,7 @@ class Morphology(object):
         if len(self.children) == 2:
             self._namedkid['L'] = self._namedkid['1']
             self._namedkid['R'] = self._namedkid['2']
+
         return self
 
     def _branch(self):
@@ -357,8 +366,8 @@ class Morphology(object):
         morpho.y = morpho.y[i:j]
         morpho.z = morpho.z[i:j]
         morpho.distance = morpho.distance[i:j]
-        if hasattr(morpho, '_origin'):
-            morpho._origin += i
+        morpho.n = j-i
+        morpho._origin += i
         return morpho
 
     def __setitem__(self, x, kid):
@@ -388,6 +397,15 @@ class Morphology(object):
                 self.children.append(kid)
                 self._namedkid[str(len(self.children))] = kid  # numbered child
             self._namedkid[x] = kid
+            kid.parent = self
+
+        # go up to the parent and update the absolute indices
+        current = self
+        parent = self.parent
+        while parent is not None:
+            current = parent
+            parent = current.parent
+        current._update_indices()
 
     def __delitem__(self, x):
         """
@@ -408,12 +426,20 @@ class Morphology(object):
         else:
             raise AttributeError('The subtree ' + x + ' does not exist')
 
+        # go up to the parent and update the absolute indices
+        current = self
+        parent = self.parent
+        while parent is not None:
+            current = parent
+            parent = current.parent
+        current._update_indices()
+
     def __getattr__(self, x):
         """
         Returns the subtree named `x`.
         Ex.: ``axon=neuron.axon``
         """
-        if x.startswith('_'):
+        if x.startswith('_') or x in self.__dict__:
             return super(object, self).__getattr__(x)
         else:
             return self[x]
@@ -425,13 +451,15 @@ class Morphology(object):
         Ex.: ``neuron.axon = Soma(diameter=10*um)``
         Ex.: ``neuron.axon = None``
         """
-        if isinstance(kid, Morphology):
-            if kid is None:
-                del self[x]
-            else:
-                self[x] = kid
-        else:  # If it is not a subtree, then it's a normal class attribute
+        if x in self.__slots__:
             object.__setattr__(self, x, kid)
+        elif kid is None:
+            del self[x]
+        elif isinstance(kid, Morphology):
+            self[x] = kid
+        else:
+            raise TypeError(('Cannot create a new subtree "%s" for an object '
+                             'of type %s.') % (x, type(kid)))
 
     def __len__(self):
         """
@@ -439,16 +467,21 @@ class Morphology(object):
         """
         return len(self.x) + sum(len(child) for child in self.children)
 
-    def compress(self, morphology_data, origin=0):
+    def _update_indices(self, origin=0):
+        self._origin = origin
+        n = self.n
+        for child in self.children:
+            child._update_indices(origin=origin + n)
+            n += len(child)
+
+    def compress(self, morphology_data):
         """
         Compresses the tree by changing the compartment vectors to views on
         a matrix (or vectors). The morphology cannot be changed anymore but
         all other functions should work normally.
         Units are discarded in the process.
-        
-        origin : offset in the base matrix
         """
-        self._origin = origin
+        origin = self._origin
         n = len(self.x)
         # Update values of vectors
         morphology_data.diameter[origin:origin+n] = self.diameter
@@ -458,18 +491,9 @@ class Morphology(object):
         morphology_data.y[origin:origin+n] = self.y
         morphology_data.z[origin:origin+n] = self.z
         morphology_data.distance[origin:origin+n] = self.distance
-        # Attributes are now views on these vectors
-        self.diameter = morphology_data.diameter[origin:origin+n]
-        self.length = morphology_data.length[origin:origin+n]
-        self.area = morphology_data.area[origin:origin+n]
-        self.x = morphology_data.x[origin:origin+n]
-        self.y = morphology_data.y[origin:origin+n]
-        self.z = morphology_data.z[origin:origin+n]
-        self.distance = morphology_data.distance[origin:origin+n]
         for kid in self.children:
-            kid.compress(morphology_data, origin=origin + n)
+            kid.compress(morphology_data)
             n += len(kid)
-        self.iscompressed = True
 
     def plot(self, axes=None, simple=True, origin=None):
         """

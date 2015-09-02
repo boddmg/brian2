@@ -430,25 +430,25 @@ class SpatialStateUpdater(CodeRunner, Group):
                             once=True)
         CodeRunner.before_run(self, run_namespace, level=level + 1)
 
-    def _pre_calc_iteration(self, morphology, counter=0):
-        self._temp_morph_i[counter] = morphology.index + 1
-        self._temp_morph_parent_i[counter] = morphology.parent + 1
+    def _pre_calc_iteration(self, morphology, counter=0, index=0,
+                            parent_index=-1):
+        self._temp_morph_i[counter] = index + 1
+        self._temp_morph_parent_i[counter] = parent_index + 1
         self._temp_starts[counter] = morphology._origin
         self._temp_ends[counter] = morphology._origin + len(morphology.x) - 1
         total_count = 1
         for child in morphology.children:
-            total_count += self._pre_calc_iteration(child, counter+total_count)
+            total_count += self._pre_calc_iteration(child,
+                                                    counter+total_count,
+                                                    index=index+total_count,
+                                                    parent_index=index)
         return total_count
 
-    def number_branches(self, morphology, n=0, parent=-1):
+    def number_branches(self, morphology):
         '''
-        Recursively number the branches and return their total number.
-        n is the index number of the current branch.
-        parent is the index number of the parent branch.
+        Return the total number of branches
         '''
-        morphology.index = n
-        morphology.parent = parent
         nbranches = 1
         for kid in (morphology.children):
-            nbranches += self.number_branches(kid, n + nbranches, n)
+            nbranches += self.number_branches(kid)
         return nbranches

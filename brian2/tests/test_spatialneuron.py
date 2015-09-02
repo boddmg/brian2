@@ -169,7 +169,7 @@ def test_infinitecable():
     t = mon.t
     v = mon[N//2-20].v
     # Theory (incorrect near cable ends)
-    x = 20*morpho.length[0] * meter
+    x = 20*morpho.length[0]
     la = neuron.space_constant[0]
     taum = Cm/gL # membrane time constant
     theory = 1./(la*Cm*pi*diameter)*sqrt(taum/(4*pi*(t+defaultclock.dt)))*\
