@@ -6,7 +6,7 @@
                         ab_plus0, ab_plus1, ab_plus2, b_minus,
                         ab_minus0, ab_minus1, ab_minus2,
                         v_star, u_plus, u_minus, gtot_all
-                        _P, _B, _morph_i, _morph_parent_i, _starts, _ends,
+                        _P, _B, _morph_parent_i, _starts, _ends,
                         _invr0, _invrn} #}
 
     cdef double[:] c = _numpy.zeros(N, dtype=_numpy.double)
@@ -102,8 +102,8 @@
     for _i in range(_num{{_P}}):
         {{_P}}[_i] = 0.
     for _i in range(_n_segments - 1):
-        __morph_i = {{_morph_i}}[_i]
-        __i_parent = {{_morph_parent_i}}[_i]
+        __morph_i = _i + 1
+        __i_parent = {{_morph_parent_i}}[_i] + 1
         __first = {{_starts}}[_i]
         __last = {{_ends}}[_i]
         __invr0 = {{_invr0}}[_i]
@@ -165,8 +165,8 @@
 
     # Linear combination
     for _i in range(_n_segments-1):
-        __morph_i = {{_morph_i}}[_i]
-        __i_parent = {{_morph_parent_i}}[_i]
+        __morph_i = _i + 1
+        __i_parent = {{_morph_parent_i}}[_i] + 1
         __first = {{_starts}}[_i]
         __last = {{_ends}}[_i]
         for _j in range(__first, __last+1):

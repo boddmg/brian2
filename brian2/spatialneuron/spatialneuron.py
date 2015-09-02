@@ -328,7 +328,7 @@ class SpatialNeuron(NeuronGroup):
             # Convert to integers (compartment numbers)
             morpho = neuron.morphology[x]
             start = morpho._origin
-            stop = morpho._origin + len(morpho)
+            stop = morpho._origin + morpho.n
 
         if start >= stop:
             raise IndexError('Illegal start/end values for subgroup, %d>=%d' %
@@ -401,8 +401,6 @@ class SpatialStateUpdater(CodeRunner, Group):
                                  constant=True, index='_P_idx')
         self.variables.add_array('_B', unit=Unit(1), size=segments+1,
                                  constant=True, index='_segment_root_idx')
-        self.variables.add_array('_morph_i', unit=Unit(1), size=segments,
-                                 dtype=np.int32, constant=True)
         self.variables.add_array('_morph_parent_i', unit=Unit(1), size=segments,
                                  dtype=np.int32, constant=True)
         self.variables.add_array('_starts', unit=Unit(1), size=segments,
@@ -418,12 +416,10 @@ class SpatialStateUpdater(CodeRunner, Group):
         # The morphology is considered fixed (length etc. can still be changed,
         # though)
         # Traverse it once to get a flattened representation
-        self._temp_morph_i = np.zeros(segments, dtype=np.int32)
         self._temp_morph_parent_i = np.zeros(segments, dtype=np.int32)
         self._temp_starts = np.zeros(segments, dtype=np.int32)
         self._temp_ends = np.zeros(segments, dtype=np.int32)
         self._pre_calc_iteration(self.group.morphology)
-        self._morph_i = self._temp_morph_i
         self._morph_parent_i = self._temp_morph_parent_i
         self._starts = self._temp_starts
         self._ends = self._temp_ends
@@ -457,16 +453,13 @@ class SpatialStateUpdater(CodeRunner, Group):
                             once=True)
         CodeRunner.before_run(self, run_namespace, level=level + 1)
 
-    def _pre_calc_iteration(self, morphology, counter=0, index=0,
-                            parent_index=-1):
-        self._temp_morph_i[counter] = index + 1
-        self._temp_morph_parent_i[counter] = parent_index + 1
-        self._temp_starts[counter] = morphology._origin
-        self._temp_ends[counter] = morphology._origin + len(morphology.x) - 1
+    def _pre_calc_iteration(self, morphology, index=0, parent_index=-1):
+        self._temp_morph_parent_i[index] = parent_index
+        self._temp_starts[index] = morphology._origin
+        self._temp_ends[index] = morphology._origin + morphology.n - 1
         total_count = 1
         for child in morphology.children:
             total_count += self._pre_calc_iteration(child,
-                                                    counter+total_count,
                                                     index=index+total_count,
                                                     parent_index=index)
         return total_count

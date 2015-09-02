@@ -7,7 +7,7 @@
                   ab_plus0, ab_plus1, ab_plus2, b_minus,
                   ab_minus0, ab_minus1, ab_minus2, v_star, u_plus, u_minus,
                   gtot_all,
-                  _P, _B, _morph_i, _morph_parent_i, _starts, _ends,
+                  _P, _B, _morph_parent_i, _starts, _ends,
                   _invr0, _invrn} #}
 
 {% macro main() %}
@@ -100,14 +100,14 @@
     std::fill_n({{_P}}, _num_P, 0.0);
     for (int _j=0; _j<_num_B - 1; _j++)
     {
-        const int _i = {{_morph_i}}[_j];
-        const int _i_parent = {{_morph_parent_i}}[_j];
+        const int _i = _j + 1;
+        const int _i_parent = {{_morph_parent_i}}[_j] + 1;
         const int _first = {{_starts}}[_j];
         const int _last = {{_ends}}[_j];
         const double _invr0 = {{_invr0}}[_j];
         const double _invrn = {{_invrn}}[_j];
         // Towards parent
-        if (_i == 1) // first branch, sealed end
+        if (_j == 0) // first branch, sealed end
         {
             {{_P}}[0] = {{u_minus}}[_first] - 1;
             {{_P}}[0 + 1] = {{u_plus}}[_first];
@@ -188,8 +188,8 @@
     // Linear combination
     for (int _j=0; _j<_num_B - 1; _j++)
     {
-        const int _i = {{_morph_i}}[_j];
-        const int _i_parent = {{_morph_parent_i}}[_j];
+        const int _i = _j + 1;
+        const int _i_parent = {{_morph_parent_i}}[_j] + 1;
         const int _first = {{_starts}}[_j];
         const int _last = {{_ends}}[_j];
         for (int _k=_first; _k<_last+1; _k++)

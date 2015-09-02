@@ -2,7 +2,7 @@
                   ab_star0, ab_star1, ab_star2, b_plus,
                   ab_plus0, ab_plus1, ab_plus2, b_minus,
                   ab_minus0, ab_minus1, ab_minus2, v_star, u_plus, u_minus,
-                  _P, _B, _morph_i, _morph_parent_i, _starts, _ends,
+                  _P, _B, _morph_parent_i, _starts, _ends,
                   _invr0, _invrn} #}
 {# ITERATE_ALL { _idx } #}
 
@@ -114,14 +114,15 @@ for i in backward:
 _n_segments = len({{_B}})
 {{_B}}[:] = 0
 {{_P}}[:] = 0
-for _i, _i_parent, _first, _last, _invr0, _invrn in zip({{_morph_i}},
-                                                         {{_morph_parent_i}},
-                                                         {{_starts}},
-                                                         {{_ends}},
-                                                         {{_invr0}},
-                                                         {{_invrn}}):
+for _j, (_j_parent, _first, _last, _invr0, _invrn) in enumerate(zip({{_morph_parent_i}},
+                                                                    {{_starts}},
+                                                                    {{_ends}},
+                                                                    {{_invr0}},
+                                                                    {{_invrn}})):
+    _i = _j + 1
+    _i_parent = _j_parent + 1
     # Towards parent
-    if _i == 1:  # first branch, sealed end
+    if _j == 0:  # first branch, sealed end
         {{_P}}[0] = {{u_minus}}[_first] - 1
         {{_P}}[0 + 1] = {{u_plus}}[_first]
         {{_B}}[0] = -{{v_star}}[_first]
@@ -147,12 +148,11 @@ _V = solve({{_P}}.reshape((_n_segments, _n_segments)), {{_B}})
 
 
 # Final solutions as linear combinations
-for _i, _i_parent, _first, _last, in zip({{_morph_i}},
-                                          {{_morph_parent_i}},
-                                          {{_starts}},
-                                          {{_ends}}):
+for _j, (_i_parent, _first, _last) in enumerate(zip({{_morph_parent_i}},
+                                                    {{_starts}},
+                                                    {{_ends}})):
     # _last+1 can go beyond the last element, but in Python slicing syntax, this
     # is ignored.
     {{v}}[_first:_last+1] = ({{v_star}}[_first:_last+1]
-                                     + _V[_i_parent] * {{u_minus}}[_first:_last+1]
-                                     + _V[_i] * {{u_plus}}[_first:_last+1])
+                                     + _V[_i_parent + 1] * {{u_minus}}[_first:_last+1]
+                                     + _V[_j + 1] * {{u_plus}}[_first:_last+1])

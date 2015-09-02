@@ -50,7 +50,6 @@ def test_construction():
     assert_allclose(neuron.L.main.length,morpho.L.length)
 
     # Check basic consistency of the flattened representation
-    assert len(np.unique(neuron.diffusion_state_updater._morph_i[:])) == len(neuron.diffusion_state_updater._morph_i)
     assert all(neuron.diffusion_state_updater._ends[:].flat >=
                neuron.diffusion_state_updater._starts[:].flat)
 
@@ -116,7 +115,6 @@ def test_construction_coordinates():
     assert_allclose(neuron.L.main.length,morpho.L.length)
 
     # Check basic consistency of the flattened representation
-    assert len(np.unique(neuron.diffusion_state_updater._morph_i[:])) == len(neuron.diffusion_state_updater._morph_i)
     assert all(neuron.diffusion_state_updater._ends[:].flat >=
                neuron.diffusion_state_updater._starts[:].flat)
 

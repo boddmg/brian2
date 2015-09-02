@@ -6,7 +6,7 @@
                   ab_plus0, ab_plus1, ab_plus2, b_minus,
                   ab_minus0, ab_minus1, ab_minus2, v_star, u_plus, u_minus,
                   gtot_all, I0_all
-                  _P, _B, _morph_i, _morph_parent_i, _starts, _ends,
+                  _P, _B, _morph_parent_i, _starts, _ends,
                   _invr0, _invrn} #}
 {% extends 'common_group.cpp' %}
 {% block maincode %}
@@ -112,8 +112,8 @@
     // Prepare matrix for solving the linear system
     for (int _j=0; _j<_num_B - 1; _j++)
     {
-        const int _i = {{_morph_i}}[_j];
-        const int _i_parent = {{_morph_parent_i}}[_j];
+        const int _i = _j + 1;
+        const int _i_parent = {{_morph_parent_i}}[_j] + 1;
         const int _first = {{_starts}}[_j];
         const int _last = {{_ends}}[_j];
         const double _invr0 = {{_invr0}}[_j];
@@ -200,8 +200,8 @@
     // Linear combination
     for (int _j=0; _j<_num_B - 1; _j++)
     {
-        const int _i = {{_morph_i}}[_j];
-        const int _i_parent = {{_morph_parent_i}}[_j];
+        const int _i = _j + 1;
+        const int _i_parent = {{_morph_parent_i}}[_j] + 1;
         const int _first = {{_starts}}[_j];
         const int _last = {{_ends}}[_j];
         for (int _k=_first; _k<_last + 1; _k++)
