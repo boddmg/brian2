@@ -19,6 +19,11 @@ logger = get_logger(__name__)
 __all__ = ['Morphology', 'MorphologyData', 'Cylinder', 'Soma']
 
 
+def hash_array(arr):
+    v = arr.view()
+    v.flags.writeable = False
+    return hash(getbuffer(v))
+
 class MorphologyData(object):
     def __init__(self, N):
         self.diameter = zeros(N)
@@ -68,6 +73,7 @@ class Morphology(object):
         self._namedkid = {}
         self.iscompressed = False
         self.indices = MorphologyIndexWrapper(self)
+        self.type = None
         if filename is not None:
             self.loadswc(filename)
         elif n is not None:  # Creates a branch with n compartments
@@ -75,6 +81,17 @@ class Morphology(object):
             # self-consistency
             (self.x, self.y, self.z, self.diameter, self.length, self.area,
              self.distance) = [zeros(n) * meter for _ in range(7)]
+
+    def __hash__(self):
+        hash_value = (hash_array(self.diameter) +
+                      hash_array(self.length) +
+                      hash_array(self.area) +
+                      hash_array(self.distance) +
+                      hash(self.type))
+        hash_value += hash(frozenset(self._namedkid.keys()))
+        for child in self.children:
+            hash_value += hash(child)
+        return hash_value
 
     def set_distance(self):
         '''
