@@ -272,7 +272,7 @@ class SpatialNeuron(NeuronGroup):
         if x == 'main':  # Main segment, without the subtrees
             origin = neuron.morphology._origin
             return Subgroup(neuron, origin, origin + len(neuron.morphology.x))
-        elif (x != 'morphology') and ((x in neuron.morphology._namedkid) or
+        elif (x != 'morphology') and ((x in neuron.morphology._named_children) or
                                       all([c in 'LR123456789' for c in x])):  # subtree
             morpho = neuron.morphology[x]
             return SpatialSubgroup(neuron, morpho._origin,
@@ -449,6 +449,6 @@ class SpatialStateUpdater(CodeRunner, Group):
         Return the total number of branches
         '''
         nbranches = 1
-        for kid in (morphology.children):
-            nbranches += self.number_branches(kid)
+        for child in (morphology.children):
+            nbranches += self.number_branches(child)
         return nbranches

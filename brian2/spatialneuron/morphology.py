@@ -69,11 +69,13 @@ class Morphology(object):
     '''
     # Specifing slots makes it easier to figure out which assignments are meant
     # to create a subtree (see `__setattr__`)
-    __slots__ = ['children', '_namedkid', 'indices', 'type', 'parent', '_origin',
-                 'n', 'x', 'y', 'z', 'diameter', 'length', 'area', 'distance']
+    __slots__ = ['children', '_named_children', 'indices', 'type', 'parent',
+                 '_origin', 'n', 'x', 'y', 'z', 'diameter', 'length', 'area',
+                 'distance']
+
     def __init__(self, filename=None, n=None, parent=None):
         self.children = []
-        self._namedkid = {}
+        self._named_children = {}
         self.indices = MorphologyIndexWrapper(self)
         self.type = None
         self.parent = None
@@ -95,7 +97,7 @@ class Morphology(object):
                       hash_array(self.area) +
                       hash_array(self.distance) +
                       hash(self.type))
-        hash_value += hash(frozenset(self._namedkid.keys()))
+        hash_value += hash(frozenset(self._named_children.keys()))
         for child in self.children:
             hash_value += hash(child)
         return hash_value
@@ -106,8 +108,8 @@ class Morphology(object):
         morphology)
         '''
         self.distance = cumsum(self.length)
-        for kid in self.children:
-            kid.set_distance()
+        for child in self.children:
+            child.set_distance()
 
     def set_length(self):
         '''
@@ -119,8 +121,8 @@ class Morphology(object):
         self.length = sum((x[1:] - x[:-1]) ** 2 +
                           (y[1:] - y[:-1]) ** 2 +
                           (z[1:] - z[:-1]) ** 2) ** .5
-        for kid in self.children:
-            kid.set_length()
+        for child in self.children:
+            child.set_length()
 
     def set_area(self):
         '''
@@ -128,8 +130,8 @@ class Morphology(object):
         (assuming cylinders)
         '''
         self.area = pi * self.diameter * self.length
-        for kid in self.children:
-            kid.set_area()
+        for child in self.children:
+            child.set_area()
 
     def set_coordinates(self):
         '''
@@ -142,8 +144,8 @@ class Morphology(object):
         self.x = l * sin(theta) * cos(phi)
         self.y = l * sin(theta) * sin(phi)
         self.z = l * cos(theta)
-        for kid in self.children:
-            kid.set_coordinates()
+        for child in self.children:
+            child.set_coordinates()
 
     def loadswc(self, filename):
         '''
@@ -225,7 +227,7 @@ class Morphology(object):
         Recursively create the morphology from a list of segments.
         Each segments has attributes: x,y,z,diameter,area,length (vectors)
         and children (list).
-        It also creates a dictionary of names (_namedkid).
+        It also creates a dictionary of names (_named_children).
         """
         n = origin
         if segments[origin]['T'] != 'soma':  # if it's a soma, only one compartment
@@ -247,23 +249,23 @@ class Morphology(object):
                          for c in segments[n]['children']]
         # Create dictionary of names (enumerates children from number 1)
         for i, child in enumerate(self.children):
-            self._namedkid[str(i + 1)] = child
+            self._named_children[str(i + 1)] = child
             # Name the child if possible
             if child.type in ['soma', 'axon', 'dendrite']:
-                if child.type in self._namedkid:
-                    self._namedkid[child.type] = None  # two children with the
+                if child.type in self._named_children:
+                    self._named_children[child.type] = None  # two children with the
                                                        # same name: erase
                                                        # (see next block)
                 else:
-                    self._namedkid[child.type] = child
+                    self._named_children[child.type] = child
         # Erase useless names
-        for k in self._namedkid.keys():
-            if self._namedkid[k] is None:
-                del self._namedkid[k]
-        # If two kids, name them L (left) and R (right)
+        for k in self._named_children.keys():
+            if self._named_children[k] is None:
+                del self._named_children[k]
+        # If two children, name them L (left) and R (right)
         if len(self.children) == 2:
-            self._namedkid['L'] = self._namedkid['1']
-            self._namedkid['R'] = self._namedkid['2']
+            self._named_children['L'] = self._named_children['1']
+            self._named_children['R'] = self._named_children['2']
 
         return self
 
@@ -273,7 +275,7 @@ class Morphology(object):
         '''
         morpho = stdlib_copy(self)
         morpho.children = []
-        morpho._namedkid = {}
+        morpho._named_children = {}
         morpho.indices = MorphologyIndexWrapper(morpho)
         return morpho
 
@@ -350,9 +352,9 @@ class Morphology(object):
             x = str(x)  # convert int to string
             if (len(x) > 1) and all([c in 'LR123456789' for c in
                                      x]):  # binary string of the form LLLRLR or 1213 (or mixed)
-                return self._namedkid[x[0]][x[1:]]
-            elif x in self._namedkid:
-                return self._namedkid[x]
+                return self._named_children[x[0]][x[1:]]
+            elif x in self._named_children:
+                return self._named_children[x]
             else:
                 raise AttributeError, "The subtree " + x + " does not exist"
         else:
@@ -370,7 +372,7 @@ class Morphology(object):
         morpho._origin += i
         return morpho
 
-    def __setitem__(self, x, kid):
+    def __setitem__(self, x, child):
         """
         Inserts the subtree and name it x.
         Ex.: ``neuron['axon']`` or ``neuron['11213']``
@@ -382,22 +384,22 @@ class Morphology(object):
         x = str(x)  # convert int to string
         if (len(x) > 1) and all([c in 'LR123456789' for c in x]):
             # binary string of the form LLLRLR or 1213 (or mixed)
-            self._namedkid[x[0]][x[1:]] = kid
-        elif x in self._namedkid:
+            self._named_children[x[0]][x[1:]] = child
+        elif x in self._named_children:
             raise AttributeError, "The subtree " + x + " already exists"
         elif x == 'main':
             raise AttributeError, "The main branch cannot be changed"
         else:
             # Update coordinates
-            kid.x += self.x[-1]
-            kid.y += self.y[-1]
-            kid.z += self.z[-1]
-            kid.distance += self.distance[-1]
-            if kid not in self.children:
-                self.children.append(kid)
-                self._namedkid[str(len(self.children))] = kid  # numbered child
-            self._namedkid[x] = kid
-            kid.parent = self
+            child.x += self.x[-1]
+            child.y += self.y[-1]
+            child.z += self.z[-1]
+            child.distance += self.distance[-1]
+            if child not in self.children:
+                self.children.append(child)
+                self._named_children[str(len(self.children))] = child  # numbered child
+            self._named_children[x] = child
+            child.parent = self
 
         # go up to the parent and update the absolute indices
         current = self
@@ -414,15 +416,15 @@ class Morphology(object):
         x = str(x)  # convert int to string
         if (len(x) > 1) and all([c in 'LR123456789' for c in x]):
             # binary string of the form LLLRLR or 1213 (or mixed)
-            del self._namedkid[x[0]][x[1:]]
-        elif x in self._namedkid:
-            child = self._namedkid[x]
+            del self._named_children[x[0]][x[1:]]
+        elif x in self._named_children:
+            child = self._named_children[x]
             # Delete from name dictionary
-            for name, kid in self._namedkid.items():
-                if kid is child: del self._namedkid[name]
+            for name, child in self._named_children.items():
+                if child is child: del self._named_children[name]
             # Delete from list of children
-            for i, kid in enumerate(self.children):
-                if kid is child: del self.children[i]
+            for i, child in enumerate(self.children):
+                if child is child: del self.children[i]
         else:
             raise AttributeError('The subtree ' + x + ' does not exist')
 
@@ -444,7 +446,7 @@ class Morphology(object):
         else:
             return self[x]
 
-    def __setattr__(self, x, kid):
+    def __setattr__(self, x, child):
         """
         Attach a subtree and name it `x`. If the subtree is ``None`` then the
         subtree `x` is deleted.
@@ -452,14 +454,14 @@ class Morphology(object):
         Ex.: ``neuron.axon = None``
         """
         if x in self.__slots__:
-            object.__setattr__(self, x, kid)
-        elif kid is None:
+            object.__setattr__(self, x, child)
+        elif child is None:
             del self[x]
-        elif isinstance(kid, Morphology):
-            self[x] = kid
+        elif isinstance(child, Morphology):
+            self[x] = child
         else:
             raise TypeError(('Cannot create a new subtree "%s" for an object '
-                             'of type %s.') % (x, type(kid)))
+                             'of type %s.') % (x, type(child)))
 
     def __len__(self):
         """
@@ -491,9 +493,9 @@ class Morphology(object):
         morphology_data.y[origin:origin+n] = self.y
         morphology_data.z[origin:origin+n] = self.z
         morphology_data.distance[origin:origin+n] = self.distance
-        for kid in self.children:
-            kid.compress(morphology_data)
-            n += len(kid)
+        for child in self.children:
+            child.compress(morphology_data)
+            n += len(child)
 
     def plot(self, axes=None, simple=True, origin=None):
         """
