@@ -2,6 +2,7 @@
 This model defines the `NeuronGroup`, the core of most simulations.
 '''
 import string
+import numbers
 
 import numpy as np
 import sympy
@@ -697,9 +698,13 @@ class NeuronGroup(Group, SpikeSource):
                 Group.__setattr__(self, key, value, level=1)
 
     def __getitem__(self, item):
-        if not isinstance(item, slice):
-            raise TypeError('Subgroups can only be constructed using slicing syntax')
-        start, stop, step = item.indices(self._N)
+        if isinstance(item, numbers.Integral):
+            start, stop, step = item, item + 1, 1
+        elif isinstance(item, slice):
+            start, stop, step = item.indices(self._N)
+        else:
+            raise TypeError(('Subgroups can only be constructed using '
+                             'single integer indices or with slicing syntax.'))
         if step != 1:
             raise IndexError('Subgroups have to be contiguous')
         if start >= stop:

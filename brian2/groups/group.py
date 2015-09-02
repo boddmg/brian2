@@ -214,7 +214,7 @@ class Indexing(object):
 
             if index_var != '_idx':
                 try:
-                    return index_var.get_value()[index_array]
+                    index_array = index_var.get_value()[index_array]
                 except IndexError as ex:
                     # We try to emulate numpy's indexing semantics here:
                     # slices never lead to IndexErrors, instead they return an
@@ -223,8 +223,8 @@ class Indexing(object):
                         return np.array([], dtype=np.int32)
                     else:
                         raise ex
-            else:
-                return index_array
+
+            return index_array
 
 
 class IndexWrapper(object):

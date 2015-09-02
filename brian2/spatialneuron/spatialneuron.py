@@ -4,6 +4,7 @@ This module defines the SpatialNeuron class, which defines multicompartmental mo
 '''
 from copy import copy as stdlib_copy
 import weakref
+import numbers
 
 import sympy as sp
 import numpy as np
@@ -13,7 +14,8 @@ from brian2.equations.equations import (Equations, PARAMETER, SUBEXPRESSION,
                                         DIFFERENTIAL_EQUATION)
 from brian2.groups.group import Group, CodeRunner, create_runner_codeobj
 from brian2.units.allunits import ohm, siemens, amp
-from brian2.units.fundamentalunits import Unit, fail_for_dimension_mismatch
+from brian2.units.fundamentalunits import (Unit, Quantity,
+                                           fail_for_dimension_mismatch)
 from brian2.units.stdunits import uF, cm
 from brian2.parsing.sympytools import sympy_to_str
 from brian2.utils.logger import get_logger
@@ -328,26 +330,27 @@ class SpatialNeuron(NeuronGroup):
         either compartment indexes or distances.
         Note a: segment is not a `SpatialNeuron`, only a `Group`.
         '''
-        if not isinstance(x, slice):
-            raise TypeError(
-                'Subgroups can only be constructed using slicing syntax')
-        start, stop, step = x.start, x.stop, x.step
-        if step is None:
-            step = 1
-        if step != 1:
-            raise IndexError('Subgroups have to be contiguous')
+        if isinstance(x, slice):
+            start, stop, step = x.start, x.stop, x.step
+            if step is not None:
+                raise IndexError('Subgroups have to be contiguous')
 
-        if type(start) == type(1 * cm):  # e.g. 10*um:20*um
-            # Convert to integers (compartment numbers)
+            if isinstance(start, Quantity):  # e.g. 10*um:20*um
+                # Convert to integers (compartment numbers)
+                morpho = neuron._morphology[x]
+                start = morpho._origin
+                stop = morpho._origin + morpho.n
+            elif start >= stop:
+                raise IndexError('Illegal start/end values for subgroup, %d>%d' %
+                                 (start, stop))
+        elif isinstance(x, (Quantity, numbers.Integral)):
             morpho = neuron._morphology[x]
             start = morpho._origin
-            stop = morpho._origin + morpho.n
+            stop = start + 1
+        else:
+            raise TypeError('Can only index with slices or single quantities/integers.')
 
-        if start >= stop:
-            raise IndexError('Illegal start/end values for subgroup, %d>=%d' %
-                             (start, stop))
-
-        return Subgroup(neuron, start, stop)
+        return SpatialSubgroup(neuron, start, stop, morpho)
 
 
 class SpatialSubgroup(Subgroup):

@@ -24,16 +24,20 @@ def test_state_variables():
     '''
     G = NeuronGroup(10, 'v : volt')
     SG = G[4:9]
+    single_SG = G[5]
     assert_raises(DimensionMismatchError, lambda: SG.__setattr__('v', -70))
     SG.v_ = float(-80*mV)
+    single_SG.v = -100*mV
     assert_allclose(G.v,
-                    np.array([0, 0, 0, 0, -80, -80, -80, -80, -80, 0])*mV)
+                    np.array([0, 0, 0, 0, -80, -100, -80, -80, -80, 0])*mV)
     assert_allclose(SG.v,
-                    np.array([-80, -80, -80, -80, -80])*mV)
+                    np.array([-80, -100, -80, -80, -80])*mV)
+    assert_allclose(single_SG.v, np.array([-100])*mV)
     assert_allclose(G.v_,
-                    np.array([0, 0, 0, 0, -80, -80, -80, -80, -80, 0])*mV)
+                    np.array([0, 0, 0, 0, -80, -100, -80, -80, -80, 0])*mV)
     assert_allclose(SG.v_,
-                    np.array([-80, -80, -80, -80, -80])*mV)
+                    np.array([-80, -100, -80, -80, -80])*mV)
+    single_SG.v = -80*mV
     # You should also be able to set variables with a string
     SG.v = 'v + i*mV'
     assert_allclose(SG.v[0], -80*mV)
@@ -55,6 +59,8 @@ def test_state_variables():
 
     # Indexing with subgroups
     assert_equal(G.v[SG], SG.v[:])
+    single_SG.v = -90*mV
+    assert_equal(G.v[single_SG], single_SG.v[:])
 
 @attr('standalone-compatible')
 @with_setup(teardown=restore_device)
@@ -397,7 +403,6 @@ def test_spike_monitor():
 @attr('codegen-independent')
 def test_wrong_indexing():
     G = NeuronGroup(10, 'v:1')
-    assert_raises(TypeError, lambda: G[0])
     assert_raises(TypeError, lambda: G[[0, 1]])
     assert_raises(TypeError, lambda: G['string'])
 
