@@ -423,7 +423,10 @@ class Morphology(object):
         Returns the subtree named `x`.
         Ex.: ``axon=neuron.axon``
         """
-        return self[x]
+        if x in self.__class__.__slots__:
+            return object.__getattribute__(self, x)
+        else:
+            return self[x]
 
     def __setattr__(self, x, child):
         """
