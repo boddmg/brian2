@@ -68,7 +68,7 @@ class StateMonitorView(object):
                 indices.append(np.nonzero(self.monitor.record == index)[0][0])
             else:
                 raise IndexError('Index number %d has not been recorded' % index)
-        return np.array(indices)
+        return np.array(indices).squeeze()
 
     def __repr__(self):
         description = '<{classname}, giving access to elements {elements} recorded by {monitor}>'
@@ -305,7 +305,7 @@ class StateMonitor(Group, CodeRunner):
             # indices but here we need relative ones
             # TODO: How to we prevent the use of completely unrelated objects here?
             source_offset = getattr(self.source, '_offset', 0)
-            return StateMonitorView(self, item._indices() - source_offset)
+            return StateMonitorView(self, item._indices().squeeze() - source_offset)
         else:
             raise TypeError('Cannot use object of type %s as an index'
                             % type(item))
