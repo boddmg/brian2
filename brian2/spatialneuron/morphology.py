@@ -20,9 +20,7 @@ __all__ = ['Morphology', 'Cylinder', 'Soma']
 
 
 def hash_array(arr):
-    v = arr.view()
-    v.flags.writeable = False
-    return hash(getbuffer(v))
+    return hash(memoryview(arr).tobytes())
 
 
 def _set_root(morphology, root):
