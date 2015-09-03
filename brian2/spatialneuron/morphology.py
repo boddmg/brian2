@@ -370,7 +370,7 @@ class Morphology(object):
         else:
             return arange(self._origin, self._origin + self.n)
 
-    def __getitem__(self, x):
+    def __getitem__(self, item):
         """
         Returns the subtree named x.
         Ex.: ```neuron['axon']``` or ```neuron['11213']```
@@ -378,59 +378,59 @@ class Morphology(object):
         ```neuron[10*um]``` returns one compartment.
         ```neuron[5]``` returns compartment number 5.
         """
-        if isinstance(x, slice):  # neuron[10*um:20*um] or neuron[1:3]
+        if isinstance(item, slice):  # neuron[10*um:20*um] or neuron[1:3]
             using_lengths = all([arg is None or have_same_dimensions(arg, meter)
-                                 for arg in [x.start, x.stop]])
+                                 for arg in [item.start, item.stop]])
             using_ints = all([arg is None or int(arg) == float(arg)
-                                 for arg in [x.start, x.stop]])
+                                 for arg in [item.start, item.stop]])
             if not (using_lengths or using_ints):
                 raise TypeError('Index slice has to use lengths or integers')
 
             morpho = self._branch()
             if using_lengths:
-                if x.step is not None:
+                if item.step is not None:
                     raise TypeError(('Cannot provide a step argument when '
                                      'slicing with lengths'))
                 l = cumsum(array(morpho.length))  # coordinate on the branch
-                if x.start is None:
+                if item.start is None:
                     i = 0
                 else:
-                    i = searchsorted(l, float(x.start))
-                if x.stop is None:
+                    i = searchsorted(l, float(item.start))
+                if item.stop is None:
                     j = len(l)
                 else:
-                    j = searchsorted(l, float(x.stop))
+                    j = searchsorted(l, float(item.stop))
             else:  # integers
-                i, j, step = x.indices(len(morpho))
+                i, j, step = item.indices(len(morpho))
                 if step != 1:
                     raise TypeError('Can only slice a contiguous segment')
-        elif isinstance(x, Quantity) and have_same_dimensions(x, meter):  # neuron[10*um]
+        elif isinstance(item, Quantity) and have_same_dimensions(item, meter):  # neuron[10*um]
             morpho = self._branch()
             l = cumsum(array(morpho.length))
-            i = searchsorted(l, x)
+            i = searchsorted(l, item)
             j = i + 1
-        elif isinstance(x, numbers.Integral):  # int: returns one compartment
+        elif isinstance(item, numbers.Integral):  # int: returns one compartment
             morpho = self._branch()
-            if x < 0:  # allows e.g. to use -1 to get the last compartment
-                x += len(morpho)
-            if x >= len(morpho):
+            if item < 0:  # allows e.g. to use -1 to get the last compartment
+                item += len(morpho)
+            if item >= len(morpho):
                 raise IndexError(('Invalid index %d '
-                                  'for %d compartments') % (x, len(morpho)))
-            i = x
+                                  'for %d compartments') % (item, len(morpho)))
+            i = item
             j = i + 1
-        elif x == 'main':
+        elif item == 'main':
             return self._branch()
-        elif isinstance(x, basestring):
-            x = str(x)  # convert int to string
-            if (len(x) > 1) and all([c in 'LR123456789' for c in
-                                     x]):  # binary string of the form LLLRLR or 1213 (or mixed)
-                return self._named_children[x[0]][x[1:]]
-            elif x in self._named_children:
-                return self._named_children[x]
+        elif isinstance(item, basestring):
+            item = str(item)  # convert int to string
+            if (len(item) > 1) and all([c in 'LR123456789' for c in
+                                     item]):  # binary string of the form LLLRLR or 1213 (or mixed)
+                return self._named_children[item[0]][item[1:]]
+            elif item in self._named_children:
+                return self._named_children[item]
             else:
-                raise AttributeError, "The subtree " + x + " does not exist"
+                raise AttributeError, "The subtree " + item + " does not exist"
         else:
-            raise TypeError('Index of type %s not understood' % type(x))
+            raise TypeError('Index of type %s not understood' % type(item))
 
         # Return the sub-morphology
         morpho._diameter = morpho.diameter[i:j]
@@ -458,38 +458,38 @@ class Morphology(object):
                                                 y=self.y[-1],
                                                 z=self.z[-1])
 
-    def __setitem__(self, x, child):
+    def __setitem__(self, key, value):
         """
-        Inserts the subtree and name it x.
+        Inserts the subtree and name it ``item``.
         Ex.: ``neuron['axon']`` or ``neuron['11213']``
         If the tree already exists with another name, then it creates a synonym
         for this tree.
         The coordinates of the subtree are relative before function call,
         and are absolute after function call.
         """
-        x = str(x)  # convert int to string
-        if x in self._named_children:
-            raise AttributeError, "The subtree " + x + " already exists"
-        elif x == 'main':
+        key = str(key)  # convert int to string
+        if key in self._named_children:
+            raise AttributeError, "The subtree " + key + " already exists"
+        elif key == 'main':
             raise AttributeError, "The main branch cannot be changed"
-        elif (len(x) > 1) and all([c in 'LR123456789' for c in x]):
+        elif (len(key) > 1) and all([c in 'LR123456789' for c in key]):
             # binary string of the form LLLRLR or 1213 (or mixed)
-            self._named_children[x[0]][x[1:]] = child
+            self._named_children[key[0]][key[1:]] = value
         else:
-            if child not in self.children:
-                self._add_new_child(child)
-            self._named_children[x] = child
+            if value not in self.children:
+                self._add_new_child(value)
+            self._named_children[key] = value
 
-    def __delitem__(self, x):
+    def __delitem__(self, item):
         """
-        Removes the subtree `x`.
+        Removes the subtree `item`.
         """
-        x = str(x)  # convert int to string
-        if (len(x) > 1) and all([c in 'LR123456789' for c in x]):
+        item = str(item)  # convert int to string
+        if (len(item) > 1) and all([c in 'LR123456789' for c in item]):
             # binary string of the form LLLRLR or 1213 (or mixed)
-            del self._named_children[x[0]][x[1:]]
-        elif x in self._named_children:
-            delete_child = self._named_children[x]
+            del self._named_children[item[0]][item[1:]]
+        elif item in self._named_children:
+            delete_child = self._named_children[item]
             # Delete from name dictionary
             for name, child in self._named_children.iteritems():
                 if child is delete_child: del self._named_children[name]
@@ -499,39 +499,39 @@ class Morphology(object):
                     del self.children[i]
                     break
         else:
-            raise AttributeError('The subtree ' + x + ' does not exist')
+            raise AttributeError('The subtree ' + item + ' does not exist')
 
         # go up to the parent and update the absolute indices
         self._root._update_indices_and_distances()
 
-    def __getattr__(self, x):
+    def __getattr__(self, item):
         """
         Returns the subtree named `x`.
         Ex.: ``axon=neuron.axon``
         """
-        if x in self.__class__.__slots__ or x in ('diameter', 'length', 'area',
+        if item in self.__class__.__slots__ or item in ('diameter', 'length', 'area',
                                                   'distance', 'x', 'y', 'z', 'n'):
-            return object.__getattribute__(self, x)
+            return object.__getattribute__(self, item)
         else:
-            return self[x]
+            return self[item]
 
-    def __setattr__(self, x, child):
+    def __setattr__(self, key, value):
         """
-        Attach a subtree and name it `x`. If the subtree is ``None`` then the
-        subtree `x` is deleted.
+        Attach a subtree and name it ``key``. If the subtree is ``None`` then the
+        subtree ``key`` is deleted.
         Ex.: ``neuron.axon = Soma(diameter=10*um)``
         Ex.: ``neuron.axon = None``
         """
-        if x in self.__slots__ or x in ('diameter', 'length', 'area',
+        if key in self.__slots__ or key in ('diameter', 'length', 'area',
                                         'distance', 'x', 'y', 'z', 'n'):
-            object.__setattr__(self, x, child)
-        elif child is None:
-            del self[x]
-        elif isinstance(child, Morphology):
-            self[x] = child
+            object.__setattr__(self, key, value)
+        elif value is None:
+            del self[key]
+        elif isinstance(value, Morphology):
+            self[key] = value
         else:
             raise TypeError(('Cannot create a new subtree "%s" for an object '
-                             'of type %s.') % (x, type(child)))
+                             'of type %s.') % (key, type(value)))
 
     def __len__(self):
         """

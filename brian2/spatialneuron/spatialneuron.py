@@ -298,19 +298,19 @@ class SpatialNeuron(NeuronGroup):
                               'the morphology that was used to create '
                               'the SpatialNeuron object'))
 
-    def __getattr__(self, x):
+    def __getattr__(self, name):
         '''
         Subtrees are accessed by attribute, e.g. neuron.axon.
         '''
-        return self.spatialneuron_attribute(self, x)
+        return self.spatialneuron_attribute(self, name)
 
-    def __getitem__(self, x):
+    def __getitem__(self, item):
         '''
-        Selects a segment, where x is a slice of either compartment
+        Selects a segment, where ``item`` is a slice of either compartment
         indexes or distances.
         Note a: segment is not a SpatialNeuron, only a Group.
         '''
-        return self.spatialneuron_segment(self, x)
+        return self.spatialneuron_segment(self, item)
 
     @staticmethod
     def spatialneuron_attribute(neuron, x):
@@ -381,11 +381,11 @@ class SpatialSubgroup(Subgroup):
         self._morphology = morphology
         Subgroup.__init__(self, source, start, stop, name)
 
-    def __getattr__(self, x):
-        return SpatialNeuron.spatialneuron_attribute(self, x)
+    def __getattr__(self, name):
+        return SpatialNeuron.spatialneuron_attribute(self, name)
 
-    def __getitem__(self, x):
-        return SpatialNeuron.spatialneuron_segment(self, x)
+    def __getitem__(self, item):
+        return SpatialNeuron.spatialneuron_segment(self, item)
 
 
 class SpatialStateUpdater(CodeRunner, Group):
