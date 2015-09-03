@@ -15,8 +15,51 @@ def test_basicshapes():
     # Check total number of compartments
     assert_equal(len(morpho),26)
     assert_equal(len(morpho.L.main),10)
-    # Check that end point is at distance 15 um from soma
-    assert_allclose(morpho.LL.distance[-1],15*um)
+    assert_allclose(morpho.LL.distance[-1], 15*um)
+
+@attr('codegen-independent')
+def test_modular_construction():
+    morpho1 = Cylinder(length=10*um, diameter=1*um, n=1)
+    morpho1.L = Cylinder(length=10*um, diameter=1*um, n=1)
+    morpho1.LL = Cylinder(length=10*um, diameter=1*um, n=1)
+
+    sub_morpho = Cylinder(length=10*um, diameter=1*um, n=1)
+    sub_morpho.L = Cylinder(length=10*um, diameter=1*um, n=1)
+    morpho2 = Cylinder(length=10*um, diameter=1*um, n=1)
+    morpho2.L = sub_morpho
+
+    # The two ways of constructing a morphology should be equivalent
+    assert_equal(len(morpho1), len(morpho2))
+    assert_allclose(morpho1.distance, morpho2.distance)
+    assert_allclose(morpho1.L.distance, morpho2.L.distance)
+    assert_allclose(morpho1.LL.distance, morpho2.LL.distance)
+    assert_allclose(morpho1.length, morpho2.length)
+    assert_allclose(morpho1.L.length, morpho2.L.length)
+    assert_allclose(morpho1.LL.length, morpho2.LL.length)
+    assert_allclose(morpho1.area, morpho2.area)
+    assert_allclose(morpho1.L.area, morpho2.L.area)
+    assert_allclose(morpho1.LL.area, morpho2.LL.area)
+
+@attr('codegen-independent')
+def test_coordinates():
+    # All of those should be identical when looking at length and area (all
+    # that matters for simulation)
+    morpho1 = Cylinder(x=10*um, y=0*um, z=0*um, diameter=1*um, n=10)
+    morpho2 = Cylinder(x=0*um, y=10*um, z=0*um, diameter=1*um, n=10)
+    morpho3 = Cylinder(x=0*um, y=0*um, z=10*um, diameter=1*um, n=10)
+    morpho4 = Cylinder(length=10*um, diameter=1*um, n=10)
+    assert_allclose(morpho1.length, morpho2.length)
+    assert_allclose(morpho2.length, morpho3.length)
+    assert_allclose(morpho3.length, morpho4.length)
+    assert_allclose(morpho1.area, morpho2.area)
+    assert_allclose(morpho2.area, morpho3.area)
+    assert_allclose(morpho3.area, morpho4.area)
+
+    # Check that putting morphologies together correctly updates the coordinates
+    morpho2.L = morpho3
+    morpho1.L = morpho2
+    assert_allclose([morpho3.x[-1], morpho3.y[-1], morpho3.z[-1]],
+                    [10*um, 10*um, 10*um])
 
 @attr('codegen-independent')
 def test_subgroup():
@@ -68,4 +111,6 @@ def test_subgroup():
 
 if __name__ == '__main__':
     test_basicshapes()
+    test_modular_construction()
+    test_coordinates()
     test_subgroup()

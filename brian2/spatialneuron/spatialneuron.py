@@ -264,8 +264,7 @@ class SpatialNeuron(NeuronGroup):
 
         self.Cm = Cm
         self.Ri = Ri
-        # TODO: View instead of copy for runtime?
-        # TODO: How to keep all those in sync with the _morphology attribute?
+
         self.diameter_ = self._morphology_data.diameter
         self.distance_ = self._morphology_data.distance
         self.length_ = self._morphology_data.length
@@ -273,6 +272,14 @@ class SpatialNeuron(NeuronGroup):
         self.x_ = self._morphology_data.x
         self.y_ = self._morphology_data.y
         self.z_ = self._morphology_data.z
+
+        # We don't allow the user to change these attributes, as they might
+        # become inconsistent
+        # TODO: At some point we might think about learning rules that change
+        # the morphology
+        for varname in ['diameter', 'distance', 'length', 'area',
+                        'x', 'y', 'z']:
+            self.variables[varname].read_only = True
 
         # Performs numerical integration step
         self.add_attribute('diffusion_state_updater')

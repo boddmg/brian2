@@ -65,25 +65,123 @@ class Morphology(object):
     # Specifing slots makes it easier to figure out which assignments are meant
     # to create a subtree (see `__setattr__`)
     __slots__ = ['children', '_named_children', 'indices', 'type',
-                 '_origin', '_root', 'n', 'x', 'y', 'z', 'diameter', 'length',
-                 'area', 'distance']
+                 '_origin', '_root', '_n', '_x', '_y', '_z', '_diameter',
+                 '_length', '_area', '_distance', '_parent']
 
-    def __init__(self, filename=None, n=None):
+    def __init__(self, filename=None, n=None, parent=None):
         self.children = []
         self._named_children = {}
         self.indices = MorphologyIndexWrapper(self)
         self.type = None
         self._origin = 0
         self._root = self
+        self._parent = parent
         if filename is not None:
+            if n is not None:
+                raise TypeError(('Cannot specify the number of compartments '
+                                 'when loading a morphology from a file.'))
             self.loadswc(filename)
-            self._update_indices()
-        elif n is not None:  # Creates a branch with n compartments
-            # The problem here is that these parameters should have some
-            # self-consistency
-            self.n = n
-            (self.x, self.y, self.z, self.diameter, self.length, self.area,
-             self.distance) = [zeros(n) * meter for _ in range(7)]
+        else:
+            if n is None:
+                n = 0  # Create an empty morphology that will be filled later
+            (self._x, self._y, self._z, self._diameter, self._length,
+             self._area, self._distance) = [zeros(n) * meter for _ in range(7)]
+            self._n = n
+
+    def update_area(self):
+        self._area = ones(self.n) * pi * self.diameter * self.length / self.n
+
+    # All attributes depend on each other, therefore only allow to change them
+    # using properties
+    # TODO: Check correct shape/type of the arguments
+    def _set_n(self, n):
+        # Use linear interpolation to set the new length, diameter and coordinates
+        # TODO: Does this actually make sense for coordinates ?
+        old_indices = linspace(0, 1, self.n + 1, endpoint=False)[:-1]
+        new_indices = linspace(0, 1, n + 1, endpoint=False)[:-1]
+        self._length = interp(new_indices, old_indices, self.length)
+        self._diameter = interp(new_indices, old_indices, self.diameter)
+        self._x = interp(new_indices, old_indices, self.x)
+        self._y = interp(new_indices, old_indices, self.y)
+        self._z = interp(new_indices, old_indices, self.z)
+        # Calculate the area
+        self.update_area()
+
+    n = property(fget=lambda self: self._n,
+                 fset=_set_n,
+                 doc='The number of compartments in this section')
+
+    def _set_length(self, length):
+        if self._parent is None:
+            prev_x = prev_y = prev_z = distance = 0.
+        else:
+            prev_x = float(self._parent.x[-1])
+            prev_y = float(self._parent.y[-1])
+            prev_z = float(self._parent.z[-1])
+            distance = float(self._parent.distance[-1])
+
+        old_end_x, old_end_y, old_end_z = self._x[-1], self._y[-1], self._z[-1]
+        diff_x = diff(hstack([prev_x, asarray(self.x)]))
+        diff_y = diff(hstack([prev_y, asarray(self.y)]))
+        diff_z = diff(hstack([prev_z, asarray(self.z)]))
+        # Random direction for new coordinates (where length was zero previously)
+        theta = rand() * 2 * pi
+        phi = rand() * 2 * pi
+        diff_x[self._length == 0*um] = sin(theta) * cos(phi)
+        diff_y[self._length == 0*um] = sin(theta) * sin(phi)
+        diff_z[self._length == 0*um] = cos(theta)
+        scale_by = Quantity(length, copy=True)
+        scale_by[self._length > 0*um] = length[self._length > 0*um] / self._length[self._length > 0*um]
+        diff_x *= scale_by
+        diff_y *= scale_by
+        diff_z *= scale_by
+        self._x = Quantity(prev_x + diff_x, dim=meter.dim)
+        self._y = Quantity(prev_y + diff_y, dim=meter.dim)
+        self._z = Quantity(prev_z + diff_z, dim=meter.dim)
+        self._distance = cumsum(length) + distance*meter
+        # in the update, we only have to propagate the change, not the absolute
+        # value
+        length_change = cumsum(length)[-1] - cumsum(self._length)[-1]
+        x_change = self._x[-1] = old_end_x
+        y_change = self._y[-1] = old_end_y
+        z_change = self._z[-1] = old_end_z
+        # Propagate the changes to the children
+        for child in self.children:
+            child._update_distances_and_coordinates(distance=length_change,
+                                                    x=x_change,
+                                                    y=y_change,
+                                                    z=z_change)
+
+    length = property(fget=lambda self: self._length,
+                      fset=_set_length,
+                      doc='The length of each compartment in this section')
+
+    def _set_diameter(self, diameter):
+        self._diameter = diameter
+        self.update_area()
+
+    diameter = property(fget=lambda self: self._diameter,
+                        fset=_set_diameter,
+                        doc='The diameter of each compartment in this section')
+
+    # Distance and area are calculated, they cannot be set directly
+    area = property(fget=lambda self: self._area,
+                    doc='The surface area of each compartment in this section')
+
+    distance = property(fget=lambda self: self._distance,
+                        doc='The distance to the root of the morphology for '
+                            'each section')
+
+    x = property(fget=lambda self: self._x,
+                 doc='The x-coordinate of the end of each compartment in this '
+                     'section (relative to the root of the morphology)')
+    y = property(fget=lambda self: self._y,
+                 doc='The x-coordinate of the end of each compartment in this '
+                     'section (relative to the root of the morphology)')
+    z = property(fget=lambda self: self._y,
+                 doc='The x-coordinate of the end of each compartment in this '
+                     'section (relative to the root of the morphology)')
+    # TODO: Allow to set the coordinates
 
     def __hash__(self):
         hash_value = (self.n +
@@ -97,36 +195,14 @@ class Morphology(object):
             hash_value += hash(child)
         return hash_value
 
-    def set_distance(self):
-        '''
-        Sets the distance to the soma (or more generally start point of the
-        morphology)
-        '''
-        self.distance = cumsum(self.length)
+    def _update_distances_and_coordinates(self, distance=0*um,
+                                          x=0*um, y=0*um, z=0*um):
+        self._distance += distance
+        self._x += x
+        self._y += y
+        self._z += z
         for child in self.children:
-            child.set_distance()
-
-    def set_length(self):
-        '''
-        Sets the length of compartments according to their coordinates
-        '''
-        x = hstack((0 * um, self.x))
-        y = hstack((0 * um, self.y))
-        z = hstack((0 * um, self.z))
-        self.length = sum((x[1:] - x[:-1]) ** 2 +
-                          (y[1:] - y[:-1]) ** 2 +
-                          (z[1:] - z[:-1]) ** 2) ** .5
-        for child in self.children:
-            child.set_length()
-
-    def set_area(self):
-        '''
-        Sets the area of compartments according to diameter and length
-        (assuming cylinders)
-        '''
-        self.area = pi * self.diameter * self.length
-        for child in self.children:
-            child.set_area()
+            child._update_distances_and_coordinates(distance, x, y, z)
 
     def set_coordinates(self):
         '''
@@ -139,8 +215,6 @@ class Morphology(object):
         self.x = l * sin(theta) * cos(phi)
         self.y = l * sin(theta) * sin(phi)
         self.z = l * cos(theta)
-        for child in self.children:
-            child.set_coordinates()
 
     def loadswc(self, filename):
         '''
@@ -215,9 +289,17 @@ class Morphology(object):
                 segment.append(seg)
                 previousn = n
         # We assume that the first segment is the root
-        self.create_from_segments(segment)
+        self._do_create_from_segments(segment)
+        self._update_indices()
+        self._update_distances_and_coordinates()
 
-    def create_from_segments(self, segments, origin=0):
+    @classmethod
+    def create_from_segments(cls, segments):
+        obj = cls()
+        obj._do_create_from_segments(segments)
+        return obj
+
+    def _do_create_from_segments(self, segments, origin=0):
         """
         Recursively create the morphology from a list of segments.
         Each segments has attributes: x,y,z,diameter,area,length (vectors)
@@ -232,15 +314,15 @@ class Morphology(object):
         # End of branch
         branch = segments[origin:n + 1]
         # Set attributes
-        self.diameter, self.length, self.area, self.x, self.y, self.z = \
+        self._n = len(branch)
+        self._diameter, self._length, self._area, self._x, self._y, self._z = \
             zip(*[(seg['diameter'], seg['length'], seg['area'], seg['x'],
                    seg['y'], seg['z']) for seg in branch])
-        self.n = len(branch)
         self.type = segments[n]['T']  # normally same type for all compartments
                                      # in the branch
-        self.set_distance()
+        self._distance = cumsum(self.length)
         # Create children (list)
-        self.children = [Morphology(root=self._root).create_from_segments(segments, origin=c)
+        self.children = [Morphology(parent=self)._do_create_from_segments(segments, origin=c)
                          for c in segments[n]['children']]
         # Create dictionary of names (enumerates children from number 1)
         for i, child in enumerate(self.children):
@@ -351,16 +433,30 @@ class Morphology(object):
             raise TypeError('Index of type %s not understood' % type(x))
 
         # Return the sub-morphology
-        morpho.diameter = morpho.diameter[i:j]
-        morpho.length = morpho.length[i:j]
-        morpho.area = morpho.area[i:j]
-        morpho.x = morpho.x[i:j]
-        morpho.y = morpho.y[i:j]
-        morpho.z = morpho.z[i:j]
-        morpho.distance = morpho.distance[i:j]
-        morpho.n = j-i
+        morpho._diameter = morpho.diameter[i:j]
+        morpho._length = morpho.length[i:j]
+        morpho._area = morpho.area[i:j]
+        morpho._x = morpho.x[i:j]
+        morpho._y = morpho.y[i:j]
+        morpho._z = morpho.z[i:j]
+        morpho._distance = morpho.distance[i:j]
+        morpho._n = j-i
         morpho._origin += i
         return morpho
+
+    def _add_new_child(self, child):
+        child._parent = self
+        self.children.append(child)
+        self._named_children[str(len(self.children))] = child  # numbered child
+        _set_root(child, self._root)
+        # go up to the parent and update the absolute indices
+        self._root._update_indices()
+        # Update the distances and coordinates in the subtree -- all previous
+        # values are considered being relative to this root
+        child._update_distances_and_coordinates(distance=self.distance[-1],
+                                                x=self.x[-1],
+                                                y=self.y[-1],
+                                                z=self.z[-1])
 
     def __setitem__(self, x, child):
         """
@@ -372,27 +468,17 @@ class Morphology(object):
         and are absolute after function call.
         """
         x = str(x)  # convert int to string
-        if (len(x) > 1) and all([c in 'LR123456789' for c in x]):
-            # binary string of the form LLLRLR or 1213 (or mixed)
-            self._named_children[x[0]][x[1:]] = child
-        elif x in self._named_children:
+        if x in self._named_children:
             raise AttributeError, "The subtree " + x + " already exists"
         elif x == 'main':
             raise AttributeError, "The main branch cannot be changed"
+        elif (len(x) > 1) and all([c in 'LR123456789' for c in x]):
+            # binary string of the form LLLRLR or 1213 (or mixed)
+            self._named_children[x[0]][x[1:]] = child
         else:
-            # Update coordinates
-            child.x += self.x[-1]
-            child.y += self.y[-1]
-            child.z += self.z[-1]
-            child.distance += self.distance[-1]
             if child not in self.children:
-                self.children.append(child)
-                self._named_children[str(len(self.children))] = child  # numbered child
+                self._add_new_child(child)
             self._named_children[x] = child
-
-        _set_root(child, self._root)
-        # go up to the parent and update the absolute indices
-        self._root._update_indices()
 
     def __delitem__(self, x):
         """
@@ -403,25 +489,28 @@ class Morphology(object):
             # binary string of the form LLLRLR or 1213 (or mixed)
             del self._named_children[x[0]][x[1:]]
         elif x in self._named_children:
-            child = self._named_children[x]
+            delete_child = self._named_children[x]
             # Delete from name dictionary
-            for name, child in self._named_children.items():
-                if child is child: del self._named_children[name]
+            for name, child in self._named_children.iteritems():
+                if child is delete_child: del self._named_children[name]
             # Delete from list of children
             for i, child in enumerate(self.children):
-                if child is child: del self.children[i]
+                if child is delete_child:
+                    del self.children[i]
+                    break
         else:
             raise AttributeError('The subtree ' + x + ' does not exist')
 
         # go up to the parent and update the absolute indices
-        self._root._update_indices()
+        self._root._update_indices_and_distances()
 
     def __getattr__(self, x):
         """
         Returns the subtree named `x`.
         Ex.: ``axon=neuron.axon``
         """
-        if x in self.__class__.__slots__:
+        if x in self.__class__.__slots__ or x in ('diameter', 'length', 'area',
+                                                  'distance', 'x', 'y', 'z', 'n'):
             return object.__getattribute__(self, x)
         else:
             return self[x]
@@ -433,7 +522,8 @@ class Morphology(object):
         Ex.: ``neuron.axon = Soma(diameter=10*um)``
         Ex.: ``neuron.axon = None``
         """
-        if x in self.__slots__:
+        if x in self.__slots__ or x in ('diameter', 'length', 'area',
+                                        'distance', 'x', 'y', 'z', 'n'):
             object.__setattr__(self, x, child)
         elif child is None:
             del self[x]
@@ -542,12 +632,12 @@ class Cylinder(Morphology):
                                       'be simultaneously specified'))
             length = sqrt(x**2 + y**2 + z**2)
         scale = arange(1, n + 1) * 1. / n
-        self.x, self.y, self.z = x * scale, y * scale, z * scale
-        self.length = ones(n) * length / n
-        self.diameter = ones(n) * diameter
-        self.area = ones(n) * pi * diameter * length / n
+        self._x, self._y, self._z = x * scale, y * scale, z * scale
+        self._length = ones(n) * length / n
+        self._diameter = ones(n) * diameter
+        self._distance = cumsum(self.length)
+        self.update_area()
         self.type = type
-        self.set_distance()
 
 
 class Soma(Morphology):  # or Sphere?
@@ -564,8 +654,13 @@ class Soma(Morphology):  # or Sphere?
     def __init__(self, diameter=None):
         Morphology.__init__(self, n=1)
         self.diameter = ones(1) * diameter
-        self.area = ones(1) * pi * diameter ** 2
         self.type = 'soma'
+
+    def _set_n(self, n):
+        raise TypeError('Cannot change the number of compartments')
+
+    def update_area(self):
+        self._area = ones(1) * pi * self.diameter ** 2
 
 
 if __name__ == '__main__':
@@ -573,7 +668,7 @@ if __name__ == '__main__':
 
     morpho = Morphology('mp_ma_40984_gc2.CNG.swc')  # retinal ganglion cell
     print len(morpho), "compartments"
-    morpho.axon = None
+    # morpho.axon = None
     morpho.plot()
     # morpho=Cylinder(length=10*um,diameter=1*um,n=10)
     #morpho.plot(simple=True)
@@ -584,8 +679,6 @@ if __name__ == '__main__':
     morpho.dendrite.LL = Cylinder(length=3 * um, diameter=1 * um, n=10)
     morpho.axon = Morphology(n=5)
     morpho.axon.diameter = ones(5) * 1 * um
-    morpho.axon.length = [1 * um, 2 * um, 1 * um, 3 * um, 1 * um]
-    morpho.axon.set_coordinates()
-    morpho.axon.set_area()
+    morpho.axon.length = [1, 2, 1, 3, 1] * um
     morpho.plot(simple=True)
     show()
