@@ -95,16 +95,63 @@ class Morphology(object):
     # using properties
     # TODO: Check correct shape/type of the arguments
     def _set_n(self, n):
-        # Use linear interpolation to set the new length, diameter and coordinates
-        # TODO: Does this actually make sense for coordinates ?
-        old_indices = linspace(0, 1, self.n + 1, endpoint=False)[:-1]
-        new_indices = linspace(0, 1, n + 1, endpoint=False)[:-1]
-        self._length = interp(new_indices, old_indices, self.length)
-        self._diameter = interp(new_indices, old_indices, self.diameter)
-        self._x = interp(new_indices, old_indices, self.x)
-        self._y = interp(new_indices, old_indices, self.y)
-        self._z = interp(new_indices, old_indices, self.z)
-        # Calculate the area
+        if n == self.n:
+            return  # nothing to do
+
+        if self._parent is None:
+            prev_x = prev_y = prev_z =  0.
+        else:
+            prev_x = float(self._parent.x[-1])
+            prev_y = float(self._parent.y[-1])
+            prev_z = float(self._parent.z[-1])
+
+        # Only allow splitting up compartments/merging neighbouring compartments
+        if n > self.n:
+            if n % self.n != 0:
+                raise NotImplementedError(('New number of compartments was %d, '
+                                           'but has to be a multiple of the '
+                                           'old number of compartments '
+                                           '%d.') % (n, self.n))
+            # Split up each compartment into identical compartments
+            split_into = n / self.n
+            self._length = self._length.repeat(split_into) / split_into
+            self._diameter = self._diameter.repeat(split_into)
+            diff_x = diff(hstack([prev_x, asarray(self._x)]))
+            diff_y = diff(hstack([prev_y, asarray(self.y)]))
+            diff_z = diff(hstack([prev_z, asarray(self.z)]))
+            self._x = prev_x + cumsum(diff_x.repeat(split_into) / split_into)
+            self._y = prev_y + cumsum(diff_y.repeat(split_into) / split_into)
+            self._z = prev_z + cumsum(diff_z.repeat(split_into) / split_into)
+        else:
+            if self.n % n != 0:
+                raise NotImplementedError(('The old number of compartments was '
+                                           '%d, which is not a multiple of the '
+                                           'given number of compartments '
+                                           '%d') % (self.n, n))
+            merge_together = self.n / n
+            self._length = sum(self.length.reshape(-1, merge_together), axis=1)
+            self._diameter = mean(self.diameter.reshape(-1, merge_together), axis=1)
+            # Use the average direction of the previous point and use it with
+            # the new length
+            dir_x = diff(hstack([prev_x, asarray(self.x)])).reshape(-1, merge_together).mean(axis=1)
+            dir_y = diff(hstack([prev_y, asarray(self.y)])).reshape(-1, merge_together).mean(axis=1)
+            dir_z = diff(hstack([prev_z, asarray(self.z)])).reshape(-1, merge_together).mean(axis=1)
+            # normalize length to 1
+            old_length = sqrt(dir_x**2 + dir_y**2 + dir_z**2)
+            old_end_x, old_end_y, old_end_z = self.x[-1], self.y[-1], self.z[-1]
+            self._x = prev_x + cumsum(dir_x / old_length * self.length)
+            self._y = prev_y + cumsum(dir_y / old_length * self.length)
+            self._z = prev_z + cumsum(dir_z / old_length * self.length)
+            # Update the change from the previous end point of the branch
+
+            for child in self.children:
+                # Note that the distance should not change, we kept the total
+                # length the same
+                child._update_distances_and_coordinates(distance=0,
+                                                        x=self.x[-1]-old_end_x,
+                                                        y=self.y[-1]-old_end_y,
+                                                        z=self.z[-1]-old_end_z)
+        self._n = n
         self.update_area()
 
     n = property(fget=lambda self: self._n,
@@ -178,7 +225,7 @@ class Morphology(object):
     y = property(fget=lambda self: self._y,
                  doc='The x-coordinate of the end of each compartment in this '
                      'section (relative to the root of the morphology)')
-    z = property(fget=lambda self: self._y,
+    z = property(fget=lambda self: self._z,
                  doc='The x-coordinate of the end of each compartment in this '
                      'section (relative to the root of the morphology)')
     # TODO: Allow to set the coordinates
