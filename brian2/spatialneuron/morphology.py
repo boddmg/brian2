@@ -30,6 +30,7 @@ def _set_root(morphology, root):
     for child in morphology.children:
         _set_root(child, root)
 
+
 class MorphologyIndexWrapper(object):
     '''
     A simpler version of `~brian2.groups.group.IndexWrapper`, not allowing for
@@ -88,7 +89,7 @@ class Morphology(object):
              self._area, self._distance) = [zeros(n) * meter for _ in range(7)]
             self._n = n
 
-    def update_area(self):
+    def _update_area(self):
         self._area = pi * self.diameter * self.length
 
     # All attributes depend on each other, therefore only allow to change them
@@ -152,7 +153,7 @@ class Morphology(object):
                                                         y=self.y[-1]-old_end_y,
                                                         z=self.z[-1]-old_end_z)
         self._n = n
-        self.update_area()
+        self._update_area()
 
     n = property(fget=lambda self: self._n,
                  fset=_set_n,
@@ -205,7 +206,7 @@ class Morphology(object):
 
     def _set_diameter(self, diameter):
         self._diameter = diameter
-        self.update_area()
+        self._update_area()
 
     diameter = property(fget=lambda self: self._diameter,
                         fset=_set_diameter,
@@ -683,7 +684,7 @@ class Cylinder(Morphology):
         self._length = ones(n) * length / n
         self._diameter = ones(n) * diameter
         self._distance = cumsum(self.length)
-        self.update_area()
+        self._update_area()
         self.type = type
 
 
@@ -706,7 +707,7 @@ class Soma(Morphology):  # or Sphere?
     def _set_n(self, n):
         raise TypeError('Cannot change the number of compartments')
 
-    def update_area(self):
+    def _update_area(self):
         self._area = ones(1) * pi * self.diameter ** 2
 
 
