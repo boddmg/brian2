@@ -89,7 +89,7 @@ class Morphology(object):
             self._n = n
 
     def update_area(self):
-        self._area = ones(self.n) * pi * self.diameter * self.length / self.n
+        self._area = pi * self.diameter * self.length
 
     # All attributes depend on each other, therefore only allow to change them
     # using properties
