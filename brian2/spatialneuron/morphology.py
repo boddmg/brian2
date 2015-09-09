@@ -78,10 +78,7 @@ class Morphology(object):
         self._root = self
         self._parent = parent
         if filename is not None:
-            if n is not None:
-                raise TypeError(('Cannot specify the number of compartments '
-                                 'when loading a morphology from a file.'))
-            self.loadswc(filename)
+            raise NotImplementedError('Use Morphology.from_swc_file instead')
         else:
             if n is None:
                 n = 0  # Create an empty morphology that will be filled later
@@ -264,7 +261,8 @@ class Morphology(object):
         self.y = l * sin(theta) * sin(phi)
         self.z = l * cos(theta)
 
-    def loadswc(self, filename):
+    @classmethod
+    def from_swc_file(cls, filename):
         '''
         Reads a SWC file containing a neuronal morphology.
         Large database at http://neuromorpho.org/neuroMorpho        
@@ -298,10 +296,6 @@ class Morphology(object):
                  'end', 'custom']
         previousn = -1
 
-        # First pass: determine whether the soma should have spherical or cylindrical geometry.
-        # Criterion: spherical if only 1 somatic compartment, otherwise cylindrical
-        spherical_soma = len([line.split()[1] == 1 for line in lines if line[0] != '#'])==1
-
         # Second pass: construction
         for line in lines:
             if line[0] != '#':  # comment
@@ -318,81 +312,93 @@ class Morphology(object):
                 seg = dict(x=x, y=y, z=z, T=T, diameter=2 * R, parent=P,
                            children=[])
                 location = (x, y, z)
-                if (T == 'soma') and spherical_soma: # Assuming spherical geometry
-                    seg['area'] = 4 * pi * R ** 2
-                    seg['length'] = 0 * um
-                elif P==-2: # No parent: we make a zero-length cylinder (not very elegant)
-                    seg['area'] = 0 * um**2
-                    seg['length'] = 0 * um
-                else:  # not soma, dendrite
+                if P == -2:
+                    locationP = (0*um, 0*um, 0*um)
+                else:
                     try:
                         locationP = (segment[P]['x'], segment[P]['y'], segment[P]['z'])
                     except IndexError:
                         raise IndexError("When adding segment "+str(n)+": Segment "+str(P)+" does not exist")
-                    seg['length'] = (sum((array(location) -
-                                          array(locationP)) ** 2)) ** .5 * meter
-                    seg['area'] = seg['length'] * 2 * pi * R
+                seg['length'] = (sum((array(location) -
+                                      array(locationP)) ** 2)) ** .5 * meter
+                seg['diameter'] = 2*R
                 if P >= 0:
                     segment[P]['children'].append(n)
                 segment.append(seg)
                 previousn = n
         # We assume that the first segment is the root
-        self._do_create_from_segments(segment)
-        self._update_indices()
-        self._update_distances_and_coordinates()
+        return cls.create_from_segments(segment)
 
     @classmethod
-    def create_from_segments(cls, segments):
-        obj = cls()
-        obj._do_create_from_segments(segments)
-        return obj
+    def create_from_segments(cls, segments, parent=None, origin=0):
+        '''
+        Create a morphology from a list of dictionaries, specifying the
+        compartments.
 
-    def _do_create_from_segments(self, segments, origin=0):
-        """
-        Recursively create the morphology from a list of segments.
-        Each segments has attributes: x,y,z,diameter,area,length (vectors)
-        and children (list).
-        It also creates a dictionary of names (_named_children).
-        """
-        n = origin
-        if segments[origin]['T'] != 'soma':  # if it's a soma, only one compartment
-            while (len(segments[n]['children']) == 1) and (
-                segments[n]['T'] != 'soma'):  # Go to the end of the branch
-                n += 1
-        # End of branch
-        branch = segments[origin:n + 1]
-        # Set attributes
-        self._n = len(branch)
-        self._diameter, self._length, self._area, self._x, self._y, self._z = \
-            zip(*[(seg['diameter'], seg['length'], seg['area'], seg['x'],
-                   seg['y'], seg['z']) for seg in branch])
-        self.type = segments[n]['T']  # normally same type for all compartments
-                                     # in the branch
-        self._distance = cumsum(self.length)
+        Parameters
+        ----------
+        segments : sequence of dict
+            The list of segments. Each element in the sequence has to be a
+            dictionary with keys ``'T'`` (the type of the compartment; only
+            ``'soma'``, ``'dendrite'`` and ``'axon'`` are used at the moment),
+            ``'diameter'``, ``'length'``, ``'x'``, ``'y'``, ``'z'``,
+            `'children'`` (a list of integer indices to the children).
+            The area of each compartment is calculated automatically.
+        '''
+        n = 0
+        t = segments[0]['T']
+        # Merge all consecutive compartments together if the type does not
+        # change
+        while len(segments[origin+n]['children']) == 1 and segments[origin+n]['T'] == t:
+            n += 1
+        branch = segments[origin:origin+n+1]
+
+        if parent is None and t == 'soma' and n == 0:
+            # If we only have a single compartment at the beginning, treat it
+            # as a spherical soma
+            morph = Soma(diameter=segments[origin]['diameter'])
+        else:
+            # We first create a dummy cylinder, then we correct the individual
+            # values
+            morph = Cylinder(length=0*um, diameter=1*um, n=n+1, type=t,
+                             parent=parent)
+            morph._diameter, morph._length, morph._x, morph._y, morph._z = \
+                map(Quantity, zip(*[(seg['diameter'], seg['length'], seg['x'],
+                                     seg['y'], seg['z']) for seg in branch]))
+            morph._update_area()
+
         # Create children (list)
-        self.children = [Morphology(parent=self)._do_create_from_segments(segments, origin=c)
-                         for c in segments[n]['children']]
+        morph.children = [cls.create_from_segments(segments=segments,
+                                                   parent=morph,
+                                                   origin=c)
+                          for c in segments[origin+n]['children']]
+
         # Create dictionary of names (enumerates children from number 1)
-        for i, child in enumerate(self.children):
-            self._named_children[str(i + 1)] = child
+        for i, child in enumerate(morph.children):
+            morph._named_children[str(i + 1)] = child
             # Name the child if possible
             if child.type in ['soma', 'axon', 'dendrite']:
-                if child.type in self._named_children:
-                    self._named_children[child.type] = None  # two children with the
-                                                       # same name: erase
-                                                       # (see next block)
+                if child.type in morph._named_children:
+                    morph._named_children[child.type] = None  # two children with the
+                                                              # same name: erase
+                                                              # (see next block)
                 else:
-                    self._named_children[child.type] = child
+                    morph._named_children[child.type] = child
         # Erase useless names
-        for k in self._named_children.keys():
-            if self._named_children[k] is None:
-                del self._named_children[k]
+        for k in morph._named_children.keys():
+            if morph._named_children[k] is None:
+                del morph._named_children[k]
         # If two children, name them L (left) and R (right)
-        if len(self.children) == 2:
-            self._named_children['L'] = self._named_children['1']
-            self._named_children['R'] = self._named_children['2']
+        if len(morph.children) == 2:
+            morph._named_children['L'] = morph._named_children['1']
+            morph._named_children['R'] = morph._named_children['2']
 
-        return self
+        # Update all indices in the end
+        if parent is None:  # first branch
+            morph._update_indices()
+            morph._update_distances_and_coordinates()
+
+        return morph
 
     def _branch(self):
         '''
@@ -658,7 +664,7 @@ class Cylinder(Morphology):
 
     @check_units(length=meter, diameter=meter, n=1, x=meter, y=meter, z=meter)
     def __init__(self, length=None, diameter=None, n=1, type=None, x=None,
-                 y=None, z=None):
+                 y=None, z=None, parent=None):
         """
         Creates a cylinder.
         n: number of compartments.
@@ -667,7 +673,7 @@ class Cylinder(Morphology):
         length is optional (and ignored) if x,y,z is specified
         If x,y,z unspecified: random direction
         """
-        Morphology.__init__(self, n=n)
+        Morphology.__init__(self, n=n, parent=parent)
         if x is None:
             theta = rand() * 2 * pi
             phi = rand() * 2 * pi
@@ -714,10 +720,11 @@ class Soma(Morphology):  # or Sphere?
 if __name__ == '__main__':
     from pylab import show
 
-    morpho = Morphology('mp_ma_40984_gc2.CNG.swc')  # retinal ganglion cell
+    morpho = Morphology.from_swc_file('mp_ma_40984_gc2.CNG.swc')  # retinal ganglion cell
     print len(morpho), "compartments"
     # morpho.axon = None
     morpho.plot()
+    show()
     # morpho=Cylinder(length=10*um,diameter=1*um,n=10)
     #morpho.plot(simple=True)
     morpho = Soma(diameter=10 * um)
