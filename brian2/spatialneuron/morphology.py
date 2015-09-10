@@ -89,7 +89,7 @@ class Morphology(object):
         self._n = n
 
     def _update_area(self):
-        self._area = ones(1) * pi * self.diameter ** 2
+        self._area = pi * self.diameter * self.length
 
     # All attributes depend on each other, therefore only allow to change them
     # using properties
@@ -339,7 +339,7 @@ class Morphology(object):
             automatically.
         '''
         n = 0
-        t = segments[0]['T']
+        t = segments[origin]['T']
         # Merge all consecutive compartments together if the type does not
         # change
         while len(segments[origin+n]['children']) == 1 and segments[origin+n]['T'] == t:
@@ -361,18 +361,20 @@ class Morphology(object):
                                     for seg in branch]))
             if parent is None:
                 parent_loc = asarray([(0, 0, 0)]).T
+                parent_dist = 0*um
             else:
                 parent_loc = asarray([(parent.x[-1], parent.y[-1], parent.z[-1])]).T
+                parent_dist = parent.distance[-1]
             locations = asarray((morph.x, morph.y, morph.z))
-            morph._length = Quantity(sqrt(sum(diff(hstack([parent_loc, locations]))**2, axis=1)),
+            morph._length = Quantity(sqrt(sum(diff(hstack([parent_loc, locations]))**2, axis=0)),
                                      dim=meter.dim)
-
+            morph._distance = cumsum(morph._length) + parent_dist
             morph._update_area()
 
         # Create children (list)
         morph.children = [cls.from_segments(segments=segments,
-                                                   parent=morph,
-                                                   origin=c)
+                                            parent=morph,
+                                            origin=c)
                           for c in segments[origin+n]['children']]
 
         # Create dictionary of names (enumerates children from number 1)
@@ -718,6 +720,8 @@ class Soma(Morphology):  # or Sphere?
     def _set_n(self, n):
         raise TypeError('Cannot change the number of compartments')
 
+    def _update_area(self):
+        self._area = ones(1) * pi * self.diameter ** 2
 
 if __name__ == '__main__':
     from pylab import show

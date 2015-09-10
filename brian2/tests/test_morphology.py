@@ -1,5 +1,7 @@
 from nose.plugins.attrib import attr
-from numpy.testing.utils import assert_equal, assert_allclose, assert_raises
+from numpy.testing.utils import (assert_equal, assert_allclose, assert_raises,
+                                 assert_array_equal)
+
 import numpy as np
 
 from brian2.spatialneuron import *
@@ -39,6 +41,82 @@ def test_modular_construction():
     assert_allclose(morpho1.area, morpho2.area)
     assert_allclose(morpho1.L.area, morpho2.L.area)
     assert_allclose(morpho1.LL.area, morpho2.LL.area)
+
+@attr('codegen-independent')
+def test_from_segments():
+    # A simple structure:
+    #      -- 1        -- 4
+    # 0 --/-- 2 -- 3 -/
+    #                 \
+    #                  -- 5 -- 6
+    segments = [
+        dict(T='soma', x=0*um, y=0*um, z=0*um, diameter=30*um, children=[1, 2]),    # 0
+        dict(T='axon', x=10*um, y=0*um, z=0*um, diameter=1*um, children=[]),        # 1
+        dict(T='dendrite', x=0*um, y=10*um, z=0*um, diameter=5*um, children=[3]),   # 2
+        dict(T='dendrite', x=0*um, y=15*um, z=0*um, diameter=5*um, children=[4, 5]),# 3
+        dict(T='dendrite', x=10*um, y=15*um, z=0*um, diameter=2*um, children=[]),   # 4
+        dict(T='dendrite', x=0*um, y=15*um, z=5*um, diameter=3*um, children=[6]),   # 5
+        dict(T='dendrite', x=0*um, y=15*um, z=15*um, diameter=3*um, children=[])    # 6
+    ]
+    morpho = Morphology.from_segments(segments)
+
+    assert len(morpho) == 7
+    # Soma
+    assert_array_equal(morpho.length, [0]*um)
+    assert_array_equal(morpho.diameter, [30]*um)
+    assert_allclose(morpho.area, ([30]*um)**2*np.pi)
+    assert_array_equal(morpho.x, [0]*um)
+    assert_array_equal(morpho.y, [0]*um)
+    assert_array_equal(morpho.z, [0]*um)
+    assert_array_equal(morpho.distance, [0]*um)
+    assert isinstance(morpho, Soma)
+
+    # Axon
+    assert_array_equal(morpho.axon.length, [10]*um)
+    assert_array_equal(morpho.axon.diameter, [1]*um)
+    assert_allclose(morpho.axon.area,
+                    morpho.axon.length * morpho.axon.diameter * np.pi)
+    assert_array_equal(morpho.axon.x, [10]*um)
+    assert_array_equal(morpho.axon.y, [0]*um)
+    assert_array_equal(morpho.axon.z, [0]*um)
+    assert_array_equal(morpho.axon.distance, [10]*um)
+
+    # First dendrite (branching from soma)
+    assert_array_equal(morpho.dendrite.length, [10, 5]*um)
+    assert_array_equal(morpho.dendrite.diameter, [5, 5]*um)
+    assert_allclose(morpho.dendrite.area,
+                    morpho.dendrite.length * morpho.dendrite.diameter * np.pi)
+    assert_array_equal(morpho.dendrite.x, [0, 0]*um)
+    assert_array_equal(morpho.dendrite.y, [10, 15]*um)
+    assert_array_equal(morpho.dendrite.z, [0, 0]*um)
+    assert_array_equal(morpho.dendrite.distance, [10, 15]*um)
+    assert isinstance(morpho.dendrite, Cylinder)
+
+    # Upper dendrite (branching from first dendrite)
+    assert morpho.dendrite.L == morpho.dendrite['1']
+    assert_array_equal(morpho.dendrite.L.length, [10]*um)
+    assert_array_equal(morpho.dendrite.L.diameter, [2]*um)
+    assert_allclose(morpho.dendrite.L.area,
+                    morpho.dendrite.L.length * morpho.dendrite.L.diameter * np.pi)
+    assert_array_equal(morpho.dendrite.L.x, [10]*um)
+    assert_array_equal(morpho.dendrite.L.y, [15]*um)
+    assert_array_equal(morpho.dendrite.L.z, [0]*um)
+    assert_array_equal(morpho.dendrite.L.distance, [25]*um)
+    assert isinstance(morpho.dendrite.L, Cylinder)
+    # There should be no name "dendrite" here as it is ambiguous
+    assert "dendrite" not in morpho.dendrite._named_children
+
+    # Lower dendrite (branching from first dendrite)
+    assert morpho.dendrite.R == morpho.dendrite['2']
+    assert_array_equal(morpho.dendrite.R.length, [5, 10]*um)
+    assert_array_equal(morpho.dendrite.R.diameter, [3, 3]*um)
+    assert_allclose(morpho.dendrite.R.area,
+                    morpho.dendrite.R.length * morpho.dendrite.R.diameter * np.pi)
+    assert_array_equal(morpho.dendrite.R.x, [0, 0]*um)
+    assert_array_equal(morpho.dendrite.R.y, [15, 15]*um)
+    assert_array_equal(morpho.dendrite.R.z, [5, 15]*um)
+    assert_array_equal(morpho.dendrite.R.distance, [20, 30]*um)
+    assert isinstance(morpho.dendrite.R, Cylinder)
 
 @attr('codegen-independent')
 def test_coordinates():
@@ -112,5 +190,6 @@ def test_subgroup():
 if __name__ == '__main__':
     test_basicshapes()
     test_modular_construction()
+    test_from_segments()
     test_coordinates()
     test_subgroup()
