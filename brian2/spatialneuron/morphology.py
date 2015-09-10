@@ -2,6 +2,7 @@
 Neuronal morphology module.
 This module defines classes to load and build neuronal morphologies.
 '''
+import abc
 from copy import copy as stdlib_copy
 import numbers
 
@@ -69,7 +70,7 @@ class Morphology(object):
                  '_origin', '_root', '_n', '_x', '_y', '_z', '_diameter',
                  '_length', '_area', '_distance', '_parent']
 
-    def __init__(self, filename=None, n=None, parent=None):
+    def __init__(self, filename=None, n=0, parent=None):
         self.children = []
         self._named_children = {}
         self.indices = MorphologyIndexWrapper(self)
@@ -79,15 +80,16 @@ class Morphology(object):
         self._parent = parent
         if filename is not None:
             raise NotImplementedError('Use Morphology.from_swc_file instead')
-        else:
-            if n is None:
-                n = 0  # Create an empty morphology that will be filled later
-            (self._x, self._y, self._z, self._diameter, self._length,
-             self._area, self._distance) = [zeros(n) * meter for _ in range(7)]
-            self._n = n
+
+        n = int(n)
+        if n < 0:
+            raise ValueError('Number of compartments cannot be negative')
+        (self._x, self._y, self._z, self._diameter, self._length,
+         self._area, self._distance) = [zeros(n) * meter for _ in range(7)]
+        self._n = n
 
     def _update_area(self):
-        self._area = pi * self.diameter * self.length
+        self._area = ones(1) * pi * self.diameter ** 2
 
     # All attributes depend on each other, therefore only allow to change them
     # using properties
@@ -311,26 +313,16 @@ class Morphology(object):
                     raise ValueError, "Bad format in file " + filename
                 seg = dict(x=x, y=y, z=z, T=T, diameter=2 * R, parent=P,
                            children=[])
-                location = (x, y, z)
-                if P == -2:
-                    locationP = (0*um, 0*um, 0*um)
-                else:
-                    try:
-                        locationP = (segment[P]['x'], segment[P]['y'], segment[P]['z'])
-                    except IndexError:
-                        raise IndexError("When adding segment "+str(n)+": Segment "+str(P)+" does not exist")
-                seg['length'] = (sum((array(location) -
-                                      array(locationP)) ** 2)) ** .5 * meter
                 seg['diameter'] = 2*R
                 if P >= 0:
                     segment[P]['children'].append(n)
                 segment.append(seg)
                 previousn = n
         # We assume that the first segment is the root
-        return cls.create_from_segments(segment)
+        return cls.from_segments(segment)
 
     @classmethod
-    def create_from_segments(cls, segments, parent=None, origin=0):
+    def from_segments(cls, segments, parent=None, origin=0):
         '''
         Create a morphology from a list of dictionaries, specifying the
         compartments.
@@ -341,9 +333,10 @@ class Morphology(object):
             The list of segments. Each element in the sequence has to be a
             dictionary with keys ``'T'`` (the type of the compartment; only
             ``'soma'``, ``'dendrite'`` and ``'axon'`` are used at the moment),
-            ``'diameter'``, ``'length'``, ``'x'``, ``'y'``, ``'z'``,
+            ``'diameter'``,``'x'``, ``'y'``, ``'z'``,
             `'children'`` (a list of integer indices to the children).
-            The area of each compartment is calculated automatically.
+            Length, area and distance of each compartment are calculated
+            automatically.
         '''
         n = 0
         t = segments[0]['T']
@@ -362,13 +355,22 @@ class Morphology(object):
             # values
             morph = Cylinder(length=0*um, diameter=1*um, n=n+1, type=t,
                              parent=parent)
-            morph._diameter, morph._length, morph._x, morph._y, morph._z = \
-                map(Quantity, zip(*[(seg['diameter'], seg['length'], seg['x'],
-                                     seg['y'], seg['z']) for seg in branch]))
+            morph._diameter, morph._x, morph._y, morph._z = \
+                map(Quantity, zip(*[(seg['diameter'],
+                                     seg['x'], seg['y'], seg['z'])
+                                    for seg in branch]))
+            if parent is None:
+                parent_loc = asarray([(0, 0, 0)]).T
+            else:
+                parent_loc = asarray([(parent.x[-1], parent.y[-1], parent.z[-1])]).T
+            locations = asarray((morph.x, morph.y, morph.z))
+            morph._length = Quantity(sqrt(sum(diff(hstack([parent_loc, locations]))**2, axis=1)),
+                                     dim=meter.dim)
+
             morph._update_area()
 
         # Create children (list)
-        morph.children = [cls.create_from_segments(segments=segments,
+        morph.children = [cls.from_segments(segments=segments,
                                                    parent=morph,
                                                    origin=c)
                           for c in segments[origin+n]['children']]
@@ -693,6 +695,9 @@ class Cylinder(Morphology):
         self._update_area()
         self.type = type
 
+    def _update_area(self):
+        self._area = pi * self.diameter * self.length
+
 
 class Soma(Morphology):  # or Sphere?
     """
@@ -712,9 +717,6 @@ class Soma(Morphology):  # or Sphere?
 
     def _set_n(self, n):
         raise TypeError('Cannot change the number of compartments')
-
-    def _update_area(self):
-        self._area = ones(1) * pi * self.diameter ** 2
 
 
 if __name__ == '__main__':
