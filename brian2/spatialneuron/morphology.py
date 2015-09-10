@@ -2,7 +2,6 @@
 Neuronal morphology module.
 This module defines classes to load and build neuronal morphologies.
 '''
-import abc
 from copy import copy as stdlib_copy
 import numbers
 
@@ -24,13 +23,21 @@ def hash_array(arr):
     return hash(memoryview(arr).tobytes())
 
 
+def read_only_view(arr):
+    '''
+    Return a read-only view of an array.
+    '''
+    v = arr.view()
+    v.flags.writeable = False
+    return v
+
+
 def _set_root(morphology, root):
     # Recursively set the `_root` attribute to link to the main morphology
     # object
     morphology._root = root
     for child in morphology.children:
         _set_root(child, root)
-
 
 class MorphologyIndexWrapper(object):
     '''
@@ -129,8 +136,13 @@ class Morphology(object):
                                            'given number of compartments '
                                            '%d') % (self.n, n))
             merge_together = self.n / n
-            self._length = sum(self.length.reshape(-1, merge_together), axis=1)
-            self._diameter = mean(self.diameter.reshape(-1, merge_together), axis=1)
+            # Calculate the average diameter, weighted by the length of the
+            # individual compartments, this way, the total area will stay the
+            # same
+            length_reshaped = self.length.reshape(-1, merge_together)
+            weight = length_reshaped / length_reshaped.sum(axis=1)
+            self._diameter = (self.diameter.reshape(-1, merge_together)*weight).sum(axis=1)
+            self._length = sum(length_reshaped, axis=1)
             # Use the average direction of the previous point and use it with
             # the new length
             dir_x = diff(hstack([prev_x, asarray(self.x)])).reshape(-1, merge_together).mean(axis=1)
@@ -158,6 +170,7 @@ class Morphology(object):
                  fset=_set_n,
                  doc='The number of compartments in this section')
 
+    @check_units(length=meter)
     def _set_length(self, length):
         if self._parent is None:
             prev_x = prev_y = prev_z = distance = 0.
@@ -177,7 +190,7 @@ class Morphology(object):
         diff_x[self._length == 0*um] = sin(theta) * cos(phi)
         diff_y[self._length == 0*um] = sin(theta) * sin(phi)
         diff_z[self._length == 0*um] = cos(theta)
-        scale_by = Quantity(length, copy=True)
+        scale_by = array(length)
         scale_by[self._length > 0*um] = length[self._length > 0*um] / self._length[self._length > 0*um]
         diff_x *= scale_by
         diff_y *= scale_by
@@ -189,9 +202,11 @@ class Morphology(object):
         # in the update, we only have to propagate the change, not the absolute
         # value
         length_change = cumsum(length)[-1] - cumsum(self._length)[-1]
-        x_change = self._x[-1] = old_end_x
-        y_change = self._y[-1] = old_end_y
-        z_change = self._z[-1] = old_end_z
+        x_change = self._x[-1] - old_end_x
+        y_change = self._y[-1] - old_end_y
+        z_change = self._z[-1] - old_end_z
+        self._length = length
+        self._update_area()
         # Propagate the changes to the children
         for child in self.children:
             child._update_distances_and_coordinates(distance=length_change,
@@ -199,36 +214,49 @@ class Morphology(object):
                                                     y=y_change,
                                                     z=z_change)
 
-    length = property(fget=lambda self: self._length,
+    length = property(fget=lambda self: read_only_view(self._length),
                       fset=_set_length,
                       doc='The length of each compartment in this section')
 
+    @check_units(diameter=meter)
     def _set_diameter(self, diameter):
         self._diameter = diameter
         self._update_area()
 
-    diameter = property(fget=lambda self: self._diameter,
+    diameter = property(fget=lambda self: read_only_view(self._diameter),
                         fset=_set_diameter,
                         doc='The diameter of each compartment in this section')
 
+    def _calculated_value_error(self, value):
+        raise AttributeError('Area and distance are calculated based on the '
+                             'other attributes, they cannot be set directly.')
+
     # Distance and area are calculated, they cannot be set directly
-    area = property(fget=lambda self: self._area,
+    area = property(fget=lambda self: read_only_view(self._area),
+                    fset=_calculated_value_error,
                     doc='The surface area of each compartment in this section')
 
-    distance = property(fget=lambda self: self._distance,
+    distance = property(fget=lambda self: read_only_view(self._distance),
+                        fset=_calculated_value_error,
                         doc='The distance to the root of the morphology for '
                             'each section')
 
-    x = property(fget=lambda self: self._x,
+    def _single_coordinate_error(self, value):
+        raise NotImplementedError(('You cannot set a single coordinate, use '
+                                   'the set_coordinates method instead.'))
+
+    x = property(fget=lambda self: read_only_view(self._x),
+                 fset=_single_coordinate_error,
                  doc='The x-coordinate of the end of each compartment in this '
                      'section (relative to the root of the morphology)')
-    y = property(fget=lambda self: self._y,
+    y = property(fget=lambda self: read_only_view(self._y),
+                 fset=_single_coordinate_error,
                  doc='The x-coordinate of the end of each compartment in this '
                      'section (relative to the root of the morphology)')
-    z = property(fget=lambda self: self._z,
+    z = property(fget=lambda self: read_only_view(self._z),
+                 fset=_single_coordinate_error,
                  doc='The x-coordinate of the end of each compartment in this '
                      'section (relative to the root of the morphology)')
-    # TODO: Allow to set the coordinates
 
     def __hash__(self):
         hash_value = (self.n +
@@ -251,17 +279,42 @@ class Morphology(object):
         for child in self.children:
             child._update_distances_and_coordinates(distance, x, y, z)
 
-    def set_coordinates(self):
+    @check_units(x=meter, y=meter, z=meter)
+    def set_coordinates(self, x, y, z):
         '''
-        Sets the coordinates of compartments according to their lengths (taking
-        a random direction)
+        Set the coordinates of this branch to new values, lengths and distances
+        will be re-calculated based on the given values.
         '''
-        l = cumsum(self.length)
-        theta = rand() * 2 * pi
-        phi = rand() * 2 * pi
-        self.x = l * sin(theta) * cos(phi)
-        self.y = l * sin(theta) * sin(phi)
-        self.z = l * cos(theta)
+        old_end_x = self._x[-1]
+        old_end_y = self._y[-1]
+        old_end_z = self._z[-1]
+        self._x = x
+        self._y = y
+        self._z = z
+
+        parent = self._parent
+        if parent is None:
+            parent_loc = asarray([(0, 0, 0)]).T
+            parent_dist = 0*um
+        else:
+            parent_loc = asarray([(parent.x[-1], parent.y[-1], parent.z[-1])]).T
+            parent_dist = parent.distance[-1]
+        locations = asarray((self.x, self.y, self.z))
+        length = Quantity(sqrt(sum(diff(hstack([parent_loc, locations]))**2, axis=0)),
+                          dim=meter.dim)
+        length_change = cumsum(length)[-1] - cumsum(self._length)[-1]
+        x_change = self._x[-1] - old_end_x
+        y_change = self._y[-1] - old_end_y
+        z_change = self._z[-1] - old_end_z
+        self._length = length
+        self._distance = parent_dist + cumsum(length)
+
+        # Propagate changes to children
+        for child in self.children:
+            child._update_distances_and_coordinates(distance=length_change,
+                                                    x=x_change,
+                                                    y=y_change,
+                                                    z=z_change)
 
     @classmethod
     def from_swc_file(cls, filename):
