@@ -171,6 +171,25 @@ def test_change_n():
     _check_consistency(soma.dendrite)
 
 
+def test_change_length():
+    soma = Soma(diameter=30*um)
+    soma.axon = Cylinder(length=100*um, diameter=10*um, n=10)
+
+    # Changing the length of a soma should not work
+    assert_raises(AttributeError, lambda: setattr(soma, 'length', 10*um))
+
+    # Changing the underlying array directly should not work (we could not
+    # guarantee consistency in this case)
+    assert_raises(ValueError, lambda: soma.length.__setitem__(3, 5*um))
+    # Changing the length of all compartments (single compartment changes not
+    # working yet)
+    soma.axon.length = [10, 10, 10, 5, 10, 10, 10, 10, 10, 10]*um
+    assert_allclose(soma.axon.length, [10, 10, 10, 5, 10, 10, 10, 10, 10, 10]*um)
+    assert_allclose(soma.axon.diameter, 10*um)
+    _check_consistency(soma.axon)
+
+    # TODO: soma.axon[3].length = ...
+
 @attr('codegen-independent')
 def test_coordinates():
     # All of those should be identical when looking at length and area (all
@@ -245,5 +264,6 @@ if __name__ == '__main__':
     test_modular_construction()
     test_from_segments()
     test_change_n()
+    test_change_length()
     test_coordinates()
     test_subgroup()

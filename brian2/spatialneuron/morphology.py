@@ -92,11 +92,12 @@ class Morphology(object):
         if n < 0:
             raise ValueError('Number of compartments cannot be negative')
         (self._x, self._y, self._z, self._diameter, self._length,
-         self._area, self._distance) = [zeros(n) * meter for _ in range(7)]
+         self._distance) = [zeros(n) * meter for _ in range(6)]
+        self._area = zeros(n) * meter**2
         self._n = n
 
     def _update_area(self):
-        self._area = pi * self.diameter * self.length
+        self._area[:] = pi * self.diameter * self.length
 
     # All attributes depend on each other, therefore only allow to change them
     # using properties
@@ -106,11 +107,13 @@ class Morphology(object):
             return  # nothing to do
 
         if self._parent is None:
-            prev_x = prev_y = prev_z =  0.
+            prev_x = prev_y = prev_z =  0.*um
+            prev_dist = 0*um
         else:
-            prev_x = float(self._parent.x[-1])
-            prev_y = float(self._parent.y[-1])
-            prev_z = float(self._parent.z[-1])
+            prev_x = self._parent.x[-1]
+            prev_y = self._parent.y[-1]
+            prev_z = self._parent.z[-1]
+            prev_dist = self._parent.distance[-1]
 
         # Only allow splitting up compartments/merging neighbouring compartments
         if n > self.n:
@@ -123,9 +126,9 @@ class Morphology(object):
             split_into = n / self.n
             self._length = self._length.repeat(split_into) / split_into
             self._diameter = self._diameter.repeat(split_into)
-            diff_x = diff(hstack([prev_x, asarray(self._x)]))
-            diff_y = diff(hstack([prev_y, asarray(self.y)]))
-            diff_z = diff(hstack([prev_z, asarray(self.z)]))
+            diff_x = Quantity(diff(hstack([prev_x, asarray(self._x)])), dim=meter.dim)
+            diff_y = Quantity(diff(hstack([prev_y, asarray(self.y)])), dim=meter.dim)
+            diff_z = Quantity(diff(hstack([prev_z, asarray(self.z)])), dim=meter.dim)
             self._x = prev_x + cumsum(diff_x.repeat(split_into) / split_into)
             self._y = prev_y + cumsum(diff_y.repeat(split_into) / split_into)
             self._z = prev_z + cumsum(diff_z.repeat(split_into) / split_into)
@@ -140,7 +143,7 @@ class Morphology(object):
             # individual compartments, this way, the total area will stay the
             # same
             length_reshaped = self.length.reshape(-1, merge_together)
-            weight = length_reshaped / length_reshaped.sum(axis=1)
+            weight = (length_reshaped.T / length_reshaped.sum(axis=1)).T
             self._diameter = (self.diameter.reshape(-1, merge_together)*weight).sum(axis=1)
             self._length = sum(length_reshaped, axis=1)
             # Use the average direction of the previous point and use it with
@@ -164,14 +167,21 @@ class Morphology(object):
                                                         y=self.y[-1]-old_end_y,
                                                         z=self.z[-1]-old_end_z)
         self._n = n
+        self._distance = prev_dist + cumsum(self._length)
+        # We have to change the size of the area first
+        self._area = zeros(self.n) * meter**2
         self._update_area()
 
     n = property(fget=lambda self: self._n,
-                 fset=_set_n,
+                 # We do not simply set fset=_set_n here, since we want to
+                 # make it possible for subclasses to overwrite _set_n
+                 fset=lambda self, value: self._set_n(value),
                  doc='The number of compartments in this section')
 
     @check_units(length=meter)
     def _set_length(self, length):
+        length = atleast_1d(length)
+
         if self._parent is None:
             prev_x = prev_y = prev_z = distance = 0.
         else:
@@ -195,9 +205,9 @@ class Morphology(object):
         diff_x *= scale_by
         diff_y *= scale_by
         diff_z *= scale_by
-        self._x = Quantity(prev_x + diff_x, dim=meter.dim)
-        self._y = Quantity(prev_y + diff_y, dim=meter.dim)
-        self._z = Quantity(prev_z + diff_z, dim=meter.dim)
+        self._x = Quantity(prev_x + cumsum(diff_x), dim=meter.dim)
+        self._y = Quantity(prev_y + cumsum(diff_y), dim=meter.dim)
+        self._z = Quantity(prev_z + cumsum(diff_z), dim=meter.dim)
         self._distance = cumsum(length) + distance*meter
         # in the update, we only have to propagate the change, not the absolute
         # value
@@ -205,9 +215,11 @@ class Morphology(object):
         x_change = self._x[-1] - old_end_x
         y_change = self._y[-1] - old_end_y
         z_change = self._z[-1] - old_end_z
-        self._length = length
+        self._length[:] = length
         self._update_area()
         # Propagate the changes to the children
+        # TODO: Changes need also to be propagated to the other compartments in
+        # the *same* branch, if we are dealing with a sub morphology!
         for child in self.children:
             child._update_distances_and_coordinates(distance=length_change,
                                                     x=x_change,
@@ -215,7 +227,7 @@ class Morphology(object):
                                                     z=z_change)
 
     length = property(fget=lambda self: read_only_view(self._length),
-                      fset=_set_length,
+                      fset=lambda self, value: self._set_length(value),
                       doc='The length of each compartment in this section')
 
     @check_units(diameter=meter)
@@ -224,7 +236,7 @@ class Morphology(object):
         self._update_area()
 
     diameter = property(fget=lambda self: read_only_view(self._diameter),
-                        fset=_set_diameter,
+                        fset=lambda self, value: self._set_diameter(value),
                         doc='The diameter of each compartment in this section')
 
     def _calculated_value_error(self, value):
@@ -544,13 +556,13 @@ class Morphology(object):
             raise TypeError('Index of type %s not understood' % type(item))
 
         # Return the sub-morphology
-        morpho._diameter = morpho.diameter[i:j]
-        morpho._length = morpho.length[i:j]
-        morpho._area = morpho.area[i:j]
-        morpho._x = morpho.x[i:j]
-        morpho._y = morpho.y[i:j]
-        morpho._z = morpho.z[i:j]
-        morpho._distance = morpho.distance[i:j]
+        morpho._diameter = morpho._diameter[i:j]
+        morpho._length = morpho._length[i:j]
+        morpho._area = morpho._area[i:j]
+        morpho._x = morpho._x[i:j]
+        morpho._y = morpho._y[i:j]
+        morpho._z = morpho._z[i:j]
+        morpho._distance = morpho._distance[i:j]
         morpho._n = j-i
         morpho._origin += i
         return morpho
@@ -750,9 +762,6 @@ class Cylinder(Morphology):
         self._update_area()
         self.type = type
 
-    def _update_area(self):
-        self._area = pi * self.diameter * self.length
-
 
 class Soma(Morphology):  # or Sphere?
     """
@@ -771,10 +780,13 @@ class Soma(Morphology):  # or Sphere?
         self.type = 'soma'
 
     def _set_n(self, n):
-        raise TypeError('Cannot change the number of compartments')
+        raise AttributeError('Cannot change the number of compartments')
+
+    def _set_length(self, length):
+        raise AttributeError('Cannot change the length of a Soma')
 
     def _update_area(self):
-        self._area = ones(1) * pi * self.diameter ** 2
+        self._area[:] = ones(1) * pi * self.diameter ** 2
 
 if __name__ == '__main__':
     from pylab import show
