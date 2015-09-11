@@ -118,6 +118,59 @@ def test_from_segments():
     assert_array_equal(morpho.dendrite.R.distance, [20, 30]*um)
     assert isinstance(morpho.dendrite.R, Cylinder)
 
+
+def _check_consistency(morphology):
+    '''
+    Helper function to check that area, distance and coordinates are consistent
+    with length and diameter (assuming a cylinder)
+    '''
+    assert isinstance(morphology, Cylinder)
+    assert_allclose(morphology.area, np.pi*morphology.length*morphology.diameter)
+    if morphology._parent is None:
+        parent_dist = 0*um
+        parent_x = parent_y = parent_z = 0*um
+    else:
+        parent_dist = morphology._parent.distance[-1]
+        parent_x = morphology._parent.x[-1]
+        parent_y = morphology._parent.y[-1]
+        parent_z = morphology._parent.z[-1]
+    assert_allclose(morphology.distance, parent_dist + np.cumsum(morphology.length))
+
+    diff_loc = np.diff(np.hstack([np.asarray([[parent_x], [parent_y], [parent_z]]),
+                       np.asarray([morphology.x, morphology.y, morphology.z])]))
+    assert_allclose(np.sqrt(np.sum(diff_loc**2, axis=0)),
+                    np.asarray(morphology.length))
+
+@attr('codegen-independent')
+def test_change_n():
+    soma = Soma(diameter=30*um)
+    soma.axon = Cylinder(length=100*um, diameter=10*um, n=10)
+    soma.dendrite = Cylinder(length=100*um, diameter=1*um, n=10)
+    soma.dendrite.L = Cylinder(length=100*um, diameter=1*um, n=10)
+    soma.dendrite.R = Cylinder(length=100*um, diameter=1*um, n=10)
+
+    # Changing the number of compartments of a soma should not work
+    assert_raises(AttributeError, lambda: setattr(soma, 'n', 2))
+
+    attributes = ['length', 'diameter', 'area', 'distance', 'x', 'y', 'z']
+
+    soma.dendrite.n = 20  # Split compartments
+    assert soma.dendrite.n == 20
+    assert all(len(getattr(soma.dendrite, attr)) == 20
+               for attr in attributes), [(attr, len(getattr(soma.dendrite, attr))) for attr in attributes]
+    assert_allclose(soma.dendrite.length, 5*um)
+    assert_allclose(soma.dendrite.diameter, 1*um)
+    _check_consistency(soma.dendrite)
+
+    soma.dendrite.n = 5  # Merge compartments
+    assert soma.dendrite.n == 5
+    assert all(len(getattr(soma.dendrite, attr)) == 5
+               for attr in attributes), [(attr, len(getattr(soma.dendrite, attr))) for attr in attributes]
+    assert_allclose(soma.dendrite.length, 20*um)
+    assert_allclose(soma.dendrite.diameter, 1*um)
+    _check_consistency(soma.dendrite)
+
+
 @attr('codegen-independent')
 def test_coordinates():
     # All of those should be identical when looking at length and area (all
@@ -191,5 +244,6 @@ if __name__ == '__main__':
     test_basicshapes()
     test_modular_construction()
     test_from_segments()
+    test_change_n()
     test_coordinates()
     test_subgroup()
