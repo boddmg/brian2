@@ -12,7 +12,7 @@ from brian2.units.allunits import meter
 from brian2.utils.logger import get_logger
 from brian2.units.stdunits import um
 from brian2.units.fundamentalunits import (have_same_dimensions, Quantity,
-                                           check_units)
+                                           Unit, check_units)
 
 logger = get_logger(__name__)
 
@@ -101,26 +101,53 @@ class Morphology(object):
     def _update_area(self):
         self._area[:] = pi * self.diameter * self.length
 
+    def _parent_coordinates(self):
+        '''
+        Helper function to return the coordinates and the distance of the parent
+        compartment.
+
+        Returns
+        -------
+        (x, y, z, distance) : tuple of `Quantity`
+            The coordinates and the distance of the parent compartment
+        '''
+        if self._parent is None:
+            parent_x = parent_y = parent_z = 0.*um
+            parent_dist = 0*um
+        else:
+            parent_x = self._parent.x[-1]
+            parent_y = self._parent.y[-1]
+            parent_z = self._parent.z[-1]
+            parent_dist = self._parent.distance[-1]
+
+        return parent_x, parent_y, parent_z, parent_dist
+
+    def _update_distances_and_coordinates(self, distance=0*um,
+                                          x=0*um, y=0*um, z=0*um):
+        self._distance += distance
+        self._x += x
+        self._y += y
+        self._z += z
+        for child in self.children:
+            child._update_distances_and_coordinates(distance, x, y, z)
+
     # All attributes depend on each other, therefore only allow to change them
     # using properties
-    # TODO: Check correct shape/type of the arguments
+    @check_units(n=Unit(1))
     def _set_n(self, n):
         if self._partial_branch:
             raise NotImplementedError('Cannot set "n" on a part of a branch')
+
+        n = asarray(n, dtype=int)
+        if n.shape != ():
+            raise TypeError('Need a single integer value')
         if n == self.n:
             return  # nothing to do
 
-        if self._parent is None:
-            prev_x = prev_y = prev_z =  0.*um
-            prev_dist = 0*um
-        else:
-            prev_x = self._parent.x[-1]
-            prev_y = self._parent.y[-1]
-            prev_z = self._parent.z[-1]
-            prev_dist = self._parent.distance[-1]
+        prev_x, prev_y, prev_z, prev_dist = self._parent_coordinates()
 
         # Only allow splitting up compartments/merging neighbouring compartments
-        if n > self.n:
+        if n > self.n:  # Split compartments
             if n % self.n != 0:
                 raise NotImplementedError(('New number of compartments was %d, '
                                            'but has to be a multiple of the '
@@ -136,7 +163,7 @@ class Morphology(object):
             self._x = prev_x + cumsum(diff_x.repeat(split_into) / split_into)
             self._y = prev_y + cumsum(diff_y.repeat(split_into) / split_into)
             self._z = prev_z + cumsum(diff_z.repeat(split_into) / split_into)
-        else:
+        else:  # Merge compartments
             if self.n % n != 0:
                 raise NotImplementedError(('The old number of compartments was '
                                            '%d, which is not a multiple of the '
@@ -187,15 +214,14 @@ class Morphology(object):
         if self._partial_branch:
             raise NotImplementedError('Cannot set "length" on a part of a '
                                       'branch')
-        length = atleast_1d(length)
-
-        if self._parent is None:
-            prev_x = prev_y = prev_z = distance = 0.
-        else:
-            prev_x = float(self._parent.x[-1])
-            prev_y = float(self._parent.y[-1])
-            prev_z = float(self._parent.z[-1])
-            distance = float(self._parent.distance[-1])
+        old_length = Quantity(self._length, copy=True)
+        # We do this assignment early to get an error message for arrays of the
+        # wrong size
+        self._length[:] = length
+        # This will make sure that we have an array of the correct size, even
+        # if the user specified a single value for all compartments
+        length = self._length
+        prev_x, prev_y, prev_z, prev_dist = self._parent_coordinates()
 
         old_end_x, old_end_y, old_end_z = self._x[-1], self._y[-1], self._z[-1]
         diff_x = diff(hstack([prev_x, asarray(self.x)]))
@@ -204,29 +230,27 @@ class Morphology(object):
         # Random direction for new coordinates (where length was zero previously)
         theta = rand() * 2 * pi
         phi = rand() * 2 * pi
-        diff_x[self._length == 0*um] = sin(theta) * cos(phi)
-        diff_y[self._length == 0*um] = sin(theta) * sin(phi)
-        diff_z[self._length == 0*um] = cos(theta)
+        diff_x[old_length == 0*um] = sin(theta) * cos(phi)
+        diff_y[old_length == 0*um] = sin(theta) * sin(phi)
+        diff_z[old_length == 0*um] = cos(theta)
         scale_by = array(length)
-        scale_by[self._length > 0*um] = length[self._length > 0*um] / self._length[self._length > 0*um]
+        scale_by[old_length > 0*um] = length[old_length > 0*um] / old_length[old_length > 0*um]
         diff_x *= scale_by
         diff_y *= scale_by
         diff_z *= scale_by
-        self._x = Quantity(prev_x + cumsum(diff_x), dim=meter.dim)
-        self._y = Quantity(prev_y + cumsum(diff_y), dim=meter.dim)
-        self._z = Quantity(prev_z + cumsum(diff_z), dim=meter.dim)
-        self._distance = cumsum(length) + distance*meter
+        self._x = prev_x + Quantity(cumsum(diff_x), dim=meter.dim)
+        self._y = prev_y + Quantity(cumsum(diff_y), dim=meter.dim)
+        self._z = prev_z + Quantity(cumsum(diff_z), dim=meter.dim)
+        self._distance = cumsum(length) + prev_dist
         # in the update, we only have to propagate the change, not the absolute
         # value
-        length_change = cumsum(length)[-1] - cumsum(self._length)[-1]
+        length_change = cumsum(length)[-1] - cumsum(old_length)[-1]
         x_change = self._x[-1] - old_end_x
         y_change = self._y[-1] - old_end_y
         z_change = self._z[-1] - old_end_z
-        self._length[:] = length
         self._update_area()
+
         # Propagate the changes to the children
-        # TODO: Changes need also to be propagated to the other compartments in
-        # the *same* branch, if we are dealing with a sub morphology!
         for child in self.children:
             child._update_distances_and_coordinates(distance=length_change,
                                                     x=x_change,
@@ -239,7 +263,7 @@ class Morphology(object):
 
     @check_units(diameter=meter)
     def _set_diameter(self, diameter):
-        self._diameter = diameter
+        self._diameter[:] = diameter
         self._update_area()
 
     diameter = property(fget=lambda self: read_only_view(self._diameter),
@@ -277,27 +301,6 @@ class Morphology(object):
                  doc='The x-coordinate of the end of each compartment in this '
                      'section (relative to the root of the morphology)')
 
-    def __hash__(self):
-        hash_value = (self.n +
-                      hash_array(self.diameter) +
-                      hash_array(self.length) +
-                      hash_array(self.area) +
-                      hash_array(self.distance) +
-                      hash(self.type))
-        hash_value += hash(frozenset(self._named_children.keys()))
-        for child in self.children:
-            hash_value += hash(child)
-        return hash_value
-
-    def _update_distances_and_coordinates(self, distance=0*um,
-                                          x=0*um, y=0*um, z=0*um):
-        self._distance += distance
-        self._x += x
-        self._y += y
-        self._z += z
-        for child in self.children:
-            child._update_distances_and_coordinates(distance, x, y, z)
-
     @check_units(x=meter, y=meter, z=meter)
     def set_coordinates(self, x, y, z):
         '''
@@ -310,17 +313,12 @@ class Morphology(object):
         old_end_x = self._x[-1]
         old_end_y = self._y[-1]
         old_end_z = self._z[-1]
-        self._x = x
-        self._y = y
-        self._z = z
+        self._x[:] = x
+        self._y[:] = y
+        self._z[:] = z
 
-        parent = self._parent
-        if parent is None:
-            parent_loc = asarray([(0, 0, 0)]).T
-            parent_dist = 0*um
-        else:
-            parent_loc = asarray([(parent.x[-1], parent.y[-1], parent.z[-1])]).T
-            parent_dist = parent.distance[-1]
+        parent_x, parent_y, parent_z, parent_dist = self._parent_coordinates()
+        parent_loc = (parent_x, parent_y, parent_z)
         locations = asarray((self.x, self.y, self.z))
         length = Quantity(sqrt(sum(diff(hstack([parent_loc, locations]))**2, axis=0)),
                           dim=meter.dim)
@@ -337,6 +335,18 @@ class Morphology(object):
                                                     x=x_change,
                                                     y=y_change,
                                                     z=z_change)
+
+    def __hash__(self):
+        hash_value = (self.n +
+                      hash_array(self.diameter) +
+                      hash_array(self.length) +
+                      hash_array(self.area) +
+                      hash_array(self.distance) +
+                      hash(self.type))
+        hash_value += hash(frozenset(self._named_children.keys()))
+        for child in self.children:
+            hash_value += hash(child)
+        return hash_value
 
     @classmethod
     def from_swc_file(cls, filename):

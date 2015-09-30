@@ -170,6 +170,10 @@ def test_change_n():
     assert_allclose(soma.dendrite.diameter, 1*um)
     _check_consistency(soma.dendrite)
 
+    # Setting the number of compartments with an array should not work
+    assert_raises(TypeError, lambda: setattr(soma.dendrite, 'n',
+                                             np.array([10, 20])))
+
     # Changing the number of compartments for a subbranch should not work
     assert_raises(NotImplementedError, lambda: setattr(soma.dendrite[:3], 'n', 10))
 
@@ -192,6 +196,9 @@ def test_change_length():
 
     # Check that the distance in the child compartment has been updated accordingly
     assert soma.axon.axon2.distance[0] == 105*um
+
+    # Check that incorrectly sized arrays raise errors
+    assert_raises(ValueError, lambda: setattr(soma.axon, 'length', [5, 5, 5, 5, 5]*um))
 
     # Changing the length of just a part of a branch should not work
     assert_raises(NotImplementedError, lambda: setattr(soma.axon[:5], 'length', [5, 5, 5, 5, 5]*um))
@@ -222,6 +229,19 @@ def test_coordinates():
     assert_raises(NotImplementedError, lambda: morpho1.L[:5].set_coordinates(x=np.arange(5)*um,
                                                                              y=np.arange(5)*um,
                                                                              z=np.arange(5)*um))
+
+def test_change_diameter():
+    soma = Soma(diameter=30*um)
+    soma.axon = Cylinder(length=100*um, diameter=10*um, n=10)
+
+    assert_allclose(soma.area, np.pi * (30*um)**2)
+    soma.diameter = 50*um
+    assert_allclose(soma.area, np.pi * (50*um)**2)
+
+    soma.axon.diameter = 20*um
+    _check_consistency(soma.axon)
+    soma.axon.diameter = 10*um*(np.arange(10) + 1)
+    _check_consistency(soma.axon)
 
 @attr('codegen-independent')
 def test_subgroup():
@@ -278,4 +298,5 @@ if __name__ == '__main__':
     test_change_n()
     test_change_length()
     test_coordinates()
+    test_change_diameter()
     test_subgroup()
