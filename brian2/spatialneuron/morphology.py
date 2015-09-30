@@ -39,6 +39,7 @@ def _set_root(morphology, root):
     for child in morphology.children:
         _set_root(child, root)
 
+
 class MorphologyIndexWrapper(object):
     '''
     A simpler version of `~brian2.groups.group.IndexWrapper`, not allowing for
@@ -75,7 +76,7 @@ class Morphology(object):
     # to create a subtree (see `__setattr__`)
     __slots__ = ['children', '_named_children', 'indices', 'type',
                  '_origin', '_root', '_n', '_x', '_y', '_z', '_diameter',
-                 '_length', '_area', '_distance', '_parent']
+                 '_length', '_area', '_distance', '_parent', '_partial_branch']
 
     def __init__(self, filename=None, n=0, parent=None):
         self.children = []
@@ -85,6 +86,7 @@ class Morphology(object):
         self._origin = 0
         self._root = self
         self._parent = parent
+        self._partial_branch = False
         if filename is not None:
             raise NotImplementedError('Use Morphology.from_swc_file instead')
 
@@ -103,6 +105,8 @@ class Morphology(object):
     # using properties
     # TODO: Check correct shape/type of the arguments
     def _set_n(self, n):
+        if self._partial_branch:
+            raise NotImplementedError('Cannot set "n" on a part of a branch')
         if n == self.n:
             return  # nothing to do
 
@@ -180,6 +184,9 @@ class Morphology(object):
 
     @check_units(length=meter)
     def _set_length(self, length):
+        if self._partial_branch:
+            raise NotImplementedError('Cannot set "length" on a part of a '
+                                      'branch')
         length = atleast_1d(length)
 
         if self._parent is None:
@@ -297,6 +304,9 @@ class Morphology(object):
         Set the coordinates of this branch to new values, lengths and distances
         will be re-calculated based on the given values.
         '''
+        if self._partial_branch:
+            raise NotImplementedError(('Cannot set the coordinates on a part '
+                                       'of a branch'))
         old_end_x = self._x[-1]
         old_end_y = self._y[-1]
         old_end_z = self._z[-1]
@@ -495,7 +505,7 @@ class Morphology(object):
 
     def __getitem__(self, item):
         """
-        Returns the subtree named x.
+        Return a subtree or a subbranch.
         Ex.: ```neuron['axon']``` or ```neuron['11213']```
         ```neuron[10*um:20*um]``` returns the subbranch from 10 um to 20 um.
         ```neuron[10*um]``` returns one compartment.
@@ -555,6 +565,14 @@ class Morphology(object):
         else:
             raise TypeError('Index of type %s not understood' % type(item))
 
+        # We do not allow to set length and coordinates on a subbranch because
+        # this would mean that we have to update the length/distance of the
+        # rest of the branch as well (i.e. not only for the children). We
+        # therefore note down whether this sub-morphology is just a part of the
+        # branch
+        if i !=0 or j != morpho._n:
+            morpho._partial_branch = True
+
         # Return the sub-morphology
         morpho._diameter = morpho._diameter[i:j]
         morpho._length = morpho._length[i:j]
@@ -565,6 +583,7 @@ class Morphology(object):
         morpho._distance = morpho._distance[i:j]
         morpho._n = j-i
         morpho._origin += i
+
         return morpho
 
     def _add_new_child(self, child):

@@ -170,25 +170,32 @@ def test_change_n():
     assert_allclose(soma.dendrite.diameter, 1*um)
     _check_consistency(soma.dendrite)
 
+    # Changing the number of compartments for a subbranch should not work
+    assert_raises(NotImplementedError, lambda: setattr(soma.dendrite[:3], 'n', 10))
+
 
 def test_change_length():
     soma = Soma(diameter=30*um)
     soma.axon = Cylinder(length=100*um, diameter=10*um, n=10)
-
+    soma.axon.axon2 = Cylinder(length=100*um, diameter=10*um, n=10)
     # Changing the length of a soma should not work
     assert_raises(AttributeError, lambda: setattr(soma, 'length', 10*um))
 
     # Changing the underlying array directly should not work (we could not
     # guarantee consistency in this case)
     assert_raises(ValueError, lambda: soma.length.__setitem__(3, 5*um))
-    # Changing the length of all compartments (single compartment changes not
-    # working yet)
+    # Changing the length of all compartments
     soma.axon.length = [10, 10, 10, 5, 10, 10, 10, 10, 10, 10]*um
     assert_allclose(soma.axon.length, [10, 10, 10, 5, 10, 10, 10, 10, 10, 10]*um)
     assert_allclose(soma.axon.diameter, 10*um)
     _check_consistency(soma.axon)
 
-    # TODO: soma.axon[3].length = ...
+    # Check that the distance in the child compartment has been updated accordingly
+    assert soma.axon.axon2.distance[0] == 105*um
+
+    # Changing the length of just a part of a branch should not work
+    assert_raises(NotImplementedError, lambda: setattr(soma.axon[:5], 'length', [5, 5, 5, 5, 5]*um))
+    assert_raises(ValueError, lambda: soma.axon.length.__setitem__(slice(0, 5), [5, 5, 5, 5, 5]*um))
 
 @attr('codegen-independent')
 def test_coordinates():
@@ -210,6 +217,11 @@ def test_coordinates():
     morpho1.L = morpho2
     assert_allclose([morpho3.x[-1], morpho3.y[-1], morpho3.z[-1]],
                     [10*um, 10*um, 10*um])
+
+    # Changing the coordinates of just a part of a branch should not work
+    assert_raises(NotImplementedError, lambda: morpho1.L[:5].set_coordinates(x=np.arange(5)*um,
+                                                                             y=np.arange(5)*um,
+                                                                             z=np.arange(5)*um))
 
 @attr('codegen-independent')
 def test_subgroup():
