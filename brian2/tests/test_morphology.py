@@ -305,6 +305,33 @@ def test_cycles():
     assert_raises(ValueError, lambda: Morphology.from_segments(segments))
 
 
+def test_subtree_deletion():
+    morph = Cylinder(length=100*um, diameter=1*um, n=10)
+    morph.child1 = Cylinder(length=100*um, diameter=1*um, n=10)
+    morph.child2 = Cylinder(length=100*um, diameter=1*um, n=10)
+    assert len(morph) == 30
+    del morph.child1
+    assert len(morph) == 20
+    del morph['child2']
+    assert len(morph) == 10
+    assert_raises(AttributeError, lambda: delattr(morph, 'child2'))
+    assert_raises(AttributeError, lambda: morph.__delitem__('child1'))
+
+    morph = Cylinder(length=100*um, diameter=1*um, n=10)
+    morph.L = Cylinder(length=100*um, diameter=1*um, n=10)
+    morph.R = Cylinder(length=100*um, diameter=1*um, n=10)
+    morph.L.L = Cylinder(length=100*um, diameter=1*um, n=10)
+    morph.L.L.L = Cylinder(length=100*um, diameter=1*um, n=10)
+    morph.L.L.R = Cylinder(length=100*um, diameter=1*um, n=10)
+    assert len(morph) == 60
+    del morph['L1L']
+    assert len(morph) == 50
+    del morph.L1
+    assert len(morph) == 30
+    assert_raises(AttributeError, lambda: delattr(morph, 'LL'))
+    assert_raises(AttributeError, lambda: morph.__delitem__('L1'))
+
+
 if __name__ == '__main__':
     test_basicshapes()
     test_modular_construction()
@@ -315,3 +342,4 @@ if __name__ == '__main__':
     test_change_diameter()
     test_subgroup()
     test_cycles()
+    test_subtree_deletion()

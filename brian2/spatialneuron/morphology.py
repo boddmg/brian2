@@ -652,8 +652,9 @@ class Morphology(object):
         elif item in self._named_children:
             delete_child = self._named_children[item]
             # Delete from name dictionary
-            for name, child in self._named_children.iteritems():
-                if child is delete_child: del self._named_children[name]
+            for name, child in self._named_children.items():  # *not* iteritems, we need a copy here
+                if child is delete_child:
+                    del self._named_children[name]
             # Delete from list of children
             for i, child in enumerate(self.children):
                 if child is delete_child:
@@ -663,7 +664,7 @@ class Morphology(object):
             raise AttributeError('The subtree ' + item + ' does not exist')
 
         # go up to the parent and update the absolute indices
-        self._root._update_indices_and_distances()
+        self._root._update_indices()
 
     def __getattr__(self, item):
         """
@@ -693,6 +694,9 @@ class Morphology(object):
         else:
             raise TypeError(('Cannot create a new subtree "%s" for an object '
                              'of type %s.') % (key, type(value)))
+
+    def __delattr__(self, item):
+        del self[item]
 
     def __len__(self):
         """
