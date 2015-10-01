@@ -305,7 +305,7 @@ class StateMonitor(Group, CodeRunner):
             # indices but here we need relative ones
             # TODO: How to we prevent the use of completely unrelated objects here?
             source_offset = getattr(self.source, '_offset', 0)
-            return StateMonitorView(self, item._indices().squeeze() - source_offset)
+            return StateMonitorView(self, np.atleast_1d(item._indices()).squeeze() - source_offset)
         else:
             raise TypeError('Cannot use object of type %s as an index'
                             % type(item))
