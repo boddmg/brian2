@@ -32,12 +32,17 @@ def read_only_view(arr):
     return v
 
 
-def _set_root(morphology, root):
+def _set_root(morphology, root, visited=None):
+    if visited is None:
+        visited = set()
+    if id(morphology) in visited:
+        raise ValueError('The morphology is not allowed to contain cycles.')
+    visited.add(id(morphology))
     # Recursively set the `_root` attribute to link to the main morphology
     # object
     morphology._root = root
     for child in morphology.children:
-        _set_root(child, root)
+        _set_root(child, root, visited=visited)
 
 
 class MorphologyIndexWrapper(object):
@@ -457,6 +462,9 @@ class Morphology(object):
             morph._update_area()
 
         # Create children (list)
+        if any([c <= origin+n for c in segments[origin+n]['children']]):
+            raise ValueError('Child indices have to be always greater than the '
+                             'parent indices.')
         morph.children = [cls.from_segments(segments=segments,
                                             parent=morph,
                                             origin=c)
@@ -600,6 +608,7 @@ class Morphology(object):
         child._parent = self
         self.children.append(child)
         self._named_children[str(len(self.children))] = child  # numbered child
+        # _set_root will also check whether there are not any cycles
         _set_root(child, self._root)
         # go up to the parent and update the absolute indices
         self._root._update_indices()

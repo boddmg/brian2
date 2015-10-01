@@ -291,6 +291,20 @@ def test_subgroup():
     assert_raises(TypeError, lambda: morpho.indices[object()])
 
 
+def test_cycles():
+    morph = Cylinder(length=100*um, diameter=1*um, n=10)
+    morph.L = Cylinder(length=100*um, diameter=1*um, n=10)
+    # Adding a cyclical reference should raise an error
+    assert_raises(ValueError, lambda: setattr(morph.L, 'L', morph))
+
+    # Same if the cycle is introduced in a list of segments
+    segments = [
+        dict(T='seg1', x=0*um, y=0*um, z=0*um, diameter=30*um, children=[1]),# 0
+        dict(T='seg2', x=10*um, y=0*um, z=0*um, diameter=1*um, children=[0]) # 1
+    ]
+    assert_raises(ValueError, lambda: Morphology.from_segments(segments))
+
+
 if __name__ == '__main__':
     test_basicshapes()
     test_modular_construction()
@@ -300,3 +314,4 @@ if __name__ == '__main__':
     test_coordinates()
     test_change_diameter()
     test_subgroup()
+    test_cycles()
